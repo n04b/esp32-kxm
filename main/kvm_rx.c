@@ -15,7 +15,7 @@ static volatile bool s_lan_on;
 
 void kvm_rx_from_tailnet(uint32_t src_ip, uint16_t src_port, const uint8_t *data, size_t len)
 {
-    /* Пустой список — ввод не принимается ни от кого. */
+    /* Empty list: input is accepted from no one. */
     if (!config_ip_allowed(src_ip)) {
         kvm_input_count_denied();
         return;
@@ -32,8 +32,8 @@ static int open_lan_socket(uint32_t ip)
     if (fd < 0) return -1;
     struct timeval tv = { .tv_sec = 0, .tv_usec = 500000 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    /* Привязка к адресу STA, а не INADDR_ANY: порт на tailnet-адресе
-     * уже занят сокетом MicroLink, и lwIP не даёт их совместить. */
+    /* Bind to the STA address, not INADDR_ANY: the port on the tailnet address
+     * is already taken by the MicroLink socket, and lwIP cannot share them. */
     struct sockaddr_in a = {
         .sin_family = AF_INET,
         .sin_port = htons(s_port),
@@ -44,7 +44,7 @@ static int open_lan_socket(uint32_t ip)
         close(fd);
         return -1;
     }
-    ESP_LOGI(TAG, "Приём из LAN на порту %u", s_port);
+    ESP_LOGI(TAG, "Receiving from LAN on port %u", s_port);
     return fd;
 }
 

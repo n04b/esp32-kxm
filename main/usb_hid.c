@@ -1,11 +1,11 @@
 /*
- * USB HID: два интерфейса.
- *   ITF 0 — клавиатура, boot-протокол, стандартный 8-байтный отчёт без report ID
- *           (работает в BIOS/UEFI), выход — индикаторы Num/Caps/Scroll.
- *   ITF 1 — мышь (report ID 1: 5 кнопок, X/Y 16 бит, колесо, AC Pan — как в
- *           esp32-kvm-ip) + consumer control (report ID 3). Поддерживает и
- *           boot-протокол мыши (3 байта), но в BIOS мышь не гарантируется.
- * Опрос 1 мс. Задача отправки работает на ядре 1.
+ * USB HID: two interfaces.
+ *   ITF 0: keyboard, boot protocol, standard 8-byte report without report ID
+ *           (works in BIOS/UEFI), output: Num/Caps/Scroll indicators.
+ *   ITF 1: mouse (report ID 1: 5 buttons, 16-bit X/Y, wheel, AC Pan, as in
+ *           esp32-kvm-ip) + consumer control (report ID 3). Also supports the
+ *           mouse boot protocol (3 bytes), but the mouse is not guaranteed in BIOS.
+ * 1 ms polling. The send task runs on core 1.
  */
 #include "usb_hid.h"
 #include "kvm_input.h"
@@ -33,7 +33,7 @@ static TaskHandle_t s_task;
 static volatile uint8_t s_leds;
 static usb_hid_leds_cb_t s_leds_cb;
 
-/* ── Дескрипторы отчётов ─────────────────────────────────────────── */
+/* ── Report descriptors ──────────────────────────────────────────── */
 
 static const uint8_t s_kbd_report_desc[] = {
     TUD_HID_REPORT_DESC_KEYBOARD()
@@ -83,7 +83,7 @@ static const uint8_t s_mouse_report_desc[] = {
     TUD_HID_REPORT_DESC_CONSUMER( HID_REPORT_ID(RID_CONSUMER) )
 };
 
-/* ── Дескриптор конфигурации ─────────────────────────────────────── */
+/* ── Configuration descriptor ────────────────────────────────────── */
 
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + 2 * TUD_HID_DESC_LEN)
 
@@ -122,7 +122,7 @@ static const char *s_strings[] = {
     "Mouse",
 };
 
-/* ── Колбэки TinyUSB ─────────────────────────────────────────────── */
+/* ── TinyUSB callbacks ───────────────────────────────────────────── */
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
@@ -141,7 +141,7 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
 {
     (void)report_id;
     if (instance != ITF_KBD || report_type != HID_REPORT_TYPE_OUTPUT || bufsize < 1) return;
-    uint8_t leds = buffer[bufsize - 1] & 0x07;   /* без report ID — один байт */
+    uint8_t leds = buffer[bufsize - 1] & 0x07;   /* no report ID: a single byte */
     if (leds != s_leds) {
         s_leds = leds;
         if (s_leds_cb) s_leds_cb(leds);
@@ -150,19 +150,19 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
 
 void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol)
 {
-    ESP_LOGI(TAG, "HID %s: протокол %s", instance == ITF_KBD ? "клавиатура" : "мышь",
+    ESP_LOGI(TAG, "HID %s: protocol %s", instance == ITF_KBD ? "keyboard" : "mouse",
              protocol == HID_PROTOCOL_BOOT ? "boot" : "report");
     kvm_input_mark_all_dirty();
     usb_hid_kick();
 }
 
-/* ── Задача отправки ─────────────────────────────────────────────── */
+/* ── Send task ───────────────────────────────────────────────────── */
 
 static bool service_reports(void)
 {
     bool pending = false;
 
-    /* Клавиатура: отчёт одинаков в boot и report режимах. */
+    /* Keyboard: the report is the same in boot and report modes. */
     if (tud_hid_n_ready(ITF_KBD)) {
         uint8_t rep[8];
         if (kvm_input_take_kbd(rep)) {
@@ -210,15 +210,15 @@ static void hid_task(void *arg)
 
         bool mounted = tud_mounted();
         if (mounted && !was_mounted) {
-            ESP_LOGI(TAG, "USB подключён к целевому ПК");
+            ESP_LOGI(TAG, "USB connected to the target PC");
             kvm_input_mark_all_dirty();
         } else if (!mounted && was_mounted) {
-            ESP_LOGW(TAG, "USB отключён");
+            ESP_LOGW(TAG, "USB disconnected");
         }
         was_mounted = mounted;
 
         if (!mounted) {
-            /* Целевой ПК выключен: пакеты молча отбрасываются. */
+            /* Target PC is off: packets are silently dropped. */
             kvm_input_discard_motion();
             pending = false;
             continue;
@@ -274,11 +274,11 @@ esp_err_t usb_hid_start(void)
         ESP_LOGE(TAG, "tinyusb_driver_install: %s", esp_err_to_name(err));
         return err;
     }
-    /* Стек в SRAM (xTaskCreate берёт внутреннюю память), ядро 1. */
+    /* Stack in SRAM (xTaskCreate uses internal memory), core 1. */
     if (xTaskCreatePinnedToCore(hid_task, "usb_hid", 4096, NULL,
                                 configMAX_PRIORITIES - 3, &s_task, 1) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "USB HID запущен: клавиатура (boot) + мышь/consumer");
+    ESP_LOGI(TAG, "USB HID started: keyboard (boot) + mouse/consumer");
     return ESP_OK;
 }

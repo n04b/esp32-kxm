@@ -19,7 +19,7 @@ static const char *TAG = "config";
 static kvm_settings_t s_cfg;
 static SemaphoreHandle_t s_mtx;
 
-/* Копия списка разрешённых для быстрого доступа из задачи приёма. */
+/* Copy of the allowlist for fast access from the receive task. */
 static portMUX_TYPE s_allow_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_allow[KVM_MAX_ALLOWED];
 static uint8_t  s_allow_n;
@@ -59,14 +59,14 @@ esp_err_t config_init(void)
         if (err == ESP_OK && len == sizeof(tmp) && tmp.version == KVM_CFG_VERSION) {
             s_cfg = tmp;
         } else if (err == ESP_OK) {
-            ESP_LOGW(TAG, "Настройки другой версии/размера — используются значения по умолчанию");
+            ESP_LOGW(TAG, "Settings of a different version/size, using defaults");
         }
     }
-    /* Оба адреса веб-интерфейса выключенными быть не могут. */
+    /* Both web UI addresses cannot be disabled at once. */
     if (!s_cfg.web_lan && !s_cfg.web_ts) s_cfg.web_lan = s_cfg.web_ts = true;
     publish_allowlist(&s_cfg);
-    ESP_LOGI(TAG, "Настройки: %s, WiFi \"%s\", разрешённых отправителей: %u",
-             s_cfg.provisioned ? "есть" : "нет (первичная настройка)",
+    ESP_LOGI(TAG, "Settings: %s, WiFi \"%s\", allowed senders: %u",
+             s_cfg.provisioned ? "present" : "none (initial setup)",
              s_cfg.wifi_ssid, s_cfg.allow_count);
     return ESP_OK;
 }
@@ -111,7 +111,7 @@ uint32_t config_first_allowed(void)
     uint32_t ip = 0;
     portENTER_CRITICAL(&s_allow_lock);
     for (int i = 0; i < s_allow_n; i++) {
-        /* приоритетный пир — первый tailnet-адрес (100.64.0.0/10) */
+        /* priority peer: the first tailnet address (100.64.0.0/10) */
         if ((s_allow[i] & 0xFFC00000u) == 0x64400000u) { ip = s_allow[i]; break; }
     }
     portEXIT_CRITICAL(&s_allow_lock);
@@ -177,6 +177,6 @@ esp_err_t config_factory_reset(void)
         nvs_close(h);
     }
     microlink_factory_reset();
-    ESP_LOGW(TAG, "Настройки сброшены");
+    ESP_LOGW(TAG, "Settings erased");
     return ESP_OK;
 }

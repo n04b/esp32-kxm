@@ -1,73 +1,73 @@
 menu "ESP32 KVM"
 
     config KVM_ENABLE_OTA
-        bool "Обновление прошивки через веб-интерфейс (OTA)"
+        bool "Firmware update via web UI (OTA)"
         default y
         help
-            Требует таблицу разделов с двумя слотами ota_0/ota_1.
-            Если прошивка не помещается в 1920 КБ, выключите и
-            используйте partitions_4mb_noota.csv.
+            Requires a partition table with two slots ota_0/ota_1.
+            If the firmware does not fit in 1920 KB, disable this and
+            use partitions_4mb_noota.csv.
 
-    menu "Сеть"
+    menu "Network"
         config KVM_UDP_PORT
-            int "UDP-порт приёма ввода по умолчанию"
+            int "Default UDP input port"
             range 1 65535
             default 4210
 
         config KVM_DEFAULT_HOSTNAME
-            string "Имя устройства в tailnet по умолчанию"
+            string "Default device name in the tailnet"
             default "esp-kvm"
 
         config KVM_TS_MAX_PEERS
-            int "Максимум активных WireGuard-пиров"
+            int "Maximum active WireGuard peers"
             range 1 16
             default 4
 
         config KVM_SETUP_AP_PASSWORD
-            string "Пароль точки доступа первичной настройки (WPA2, ≥8 символов)"
+            string "Setup access point password (WPA2, >=8 characters)"
             default "kvmsetup"
 
         config KVM_WIFI_RETRY_MAX_MS
-            int "Максимальная пауза между попытками переподключения WiFi, мс"
+            int "Maximum delay between WiFi reconnect attempts, ms"
             default 10000
     endmenu
 
     menu "KVM"
         config KVM_WATCHDOG_MS
-            int "Сторож связи по умолчанию, мс"
+            int "Default link watchdog, ms"
             range 50 5000
             default 200
 
         config KVM_UDP_HZ_DEFAULT
-            int "Номинальная частота пакетов, Гц (для справки в интерфейсе)"
+            int "Nominal packet rate, Hz (for reference in the UI)"
             range 60 1000
             default 125
     endmenu
 
-    menu "Плата"
+    menu "Board"
         config KVM_BOOT_BUTTON_GPIO
-            int "GPIO кнопки BOOT"
+            int "BOOT button GPIO"
             default 0
 
         config KVM_FACTORY_RESET_HOLD_MS
-            int "Удержание BOOT для сброса настроек, мс"
+            int "BOOT hold time for factory reset, ms"
             default 5000
 
         config KVM_LED_GPIO
-            int "GPIO светодиода состояния (-1 = нет)"
+            int "Status LED GPIO (-1 = none)"
             default 48
 
         config KVM_LED_WS2812
-            bool "Светодиод — адресный WS2812 (RGB)"
+            bool "LED is an addressable WS2812 (RGB)"
             default y
 
         config KVM_LED_ACTIVE_LOW
-            bool "Обычный светодиод горит при низком уровне"
+            bool "Plain LED is active low"
             depends on !KVM_LED_WS2812
             default n
     endmenu
 
-    menu "USB-дескриптор"
+    menu "USB descriptor"
         config KVM_USB_VID
             hex "Vendor ID"
             default 0x303A
@@ -75,10 +75,10 @@ menu "ESP32 KVM"
             hex "Product ID"
             default 0x4002
         config KVM_USB_MANUFACTURER
-            string "Производитель"
+            string "Manufacturer"
             default "ESP32"
         config KVM_USB_PRODUCT
-            string "Продукт"
+            string "Product"
             default "KVM Keyboard/Mouse"
     endmenu
 

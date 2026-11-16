@@ -1,4 +1,4 @@
-# ESP32-S3 SuperMini (4 МБ flash), вариант без OTA (запасной)
+# ESP32-S3 SuperMini (4 MB flash), no-OTA variant (fallback)
 # Name,    Type, SubType, Offset,   Size
 nvs,       data, nvs,     0x9000,   24K
 phy_init,  data, phy,     0x11000,  4K

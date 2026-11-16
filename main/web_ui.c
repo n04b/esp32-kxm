@@ -31,7 +31,7 @@ extern const uint8_t index_html_gz_end[]   asm("_binary_index_html_gz_end");
 static httpd_handle_t s_hd;
 static bool s_setup;
 
-/* ── Сессии ─────────────────────────────────────────────────────── */
+/* ── Sessions ───────────────────────────────────────────────────── */
 
 #define MAX_SESSIONS 4
 #define SESSION_TTL_US (24LL * 3600 * 1000000)
@@ -44,9 +44,9 @@ static int s_login_fails;
 
 #define MAX_WS 4
 static int s_ws_fds[MAX_WS] = { -1, -1, -1, -1 };
-static volatile int s_ws_owner = -1;       /* fd браузера, который управляет */
+static volatile int s_ws_owner = -1;       /* fd of the browser in control */
 
-/* ── Утилиты ────────────────────────────────────────────────────── */
+/* ── Utilities ──────────────────────────────────────────────────── */
 
 static bool ip_is_tailnet(uint32_t ip) { return (ip & 0xFFC00000u) == 0x64400000u; }
 
@@ -71,7 +71,7 @@ static uint32_t sock_ip(int fd, bool local)
     return 0;
 }
 
-/* Разрешён ли доступ к интерфейсу через этот адрес устройства. */
+/* Whether UI access is allowed via this device address. */
 static bool access_allowed(int fd)
 {
     if (s_setup) return true;
@@ -85,7 +85,7 @@ static esp_err_t on_open(httpd_handle_t hd, int fd)
 {
     (void)hd;
     if (!access_allowed(fd)) {
-        ESP_LOGW(TAG, "Доступ к интерфейсу по этому адресу выключен");
+        ESP_LOGW(TAG, "UI access via this address is disabled");
         return ESP_FAIL;
     }
     return ESP_OK;
@@ -99,7 +99,7 @@ static void on_close(httpd_handle_t hd, int fd)
         kvm_source_t src = { .kind = KVM_SRC_WS, .fd = fd };
         kvm_input_release_source(&src);
         s_ws_owner = -1;
-        ESP_LOGI(TAG, "Браузер отключился — управление освобождено");
+        ESP_LOGI(TAG, "Browser disconnected, control released");
     }
     close(fd);
 }
@@ -164,7 +164,7 @@ static int jint(cJSON *j, const char *k, int def)
     return cJSON_IsNumber(i) ? i->valueint : def;
 }
 
-/* ── Авторизация ────────────────────────────────────────────────── */
+/* ── Authorization ──────────────────────────────────────────────── */
 
 static bool get_cookie_token(httpd_req_t *req, char out[33])
 {
@@ -189,7 +189,7 @@ static bool get_cookie_token(httpd_req_t *req, char out[33])
 
 static bool is_authed(httpd_req_t *req)
 {
-    if (s_setup) return true;        /* первичная настройка: пароля ещё нет */
+    if (s_setup) return true;        /* initial setup: no password yet */
     char tok[33];
     if (!get_cookie_token(req, tok)) return false;
     int64_t now = esp_timer_get_time();
@@ -220,7 +220,7 @@ static void new_session(char out[33])
     s_sessions[slot].expires = now + SESSION_TTL_US;
 }
 
-/* ── Страница ───────────────────────────────────────────────────── */
+/* ── Page ───────────────────────────────────────────────────────── */
 
 static esp_err_t h_index(httpd_req_t *req)
 {
@@ -250,7 +250,7 @@ static esp_err_t h_state(httpd_req_t *req)
 static esp_err_t h_login(httpd_req_t *req)
 {
     int64_t now = esp_timer_get_time();
-    if (now < s_login_block_until) return send_err(req, "429 Too Many Requests", "Слишком много попыток, подождите минуту");
+    if (now < s_login_block_until) return send_err(req, "429 Too Many Requests", "Too many attempts, wait a minute");
     cJSON *j = read_json(req);
     const char *pw = j ? jstr(j, "password") : NULL;
     bool ok = pw && config_check_password(pw);
@@ -261,7 +261,7 @@ static esp_err_t h_login(httpd_req_t *req)
             s_login_fails = 0;
         }
         vTaskDelay(pdMS_TO_TICKS(500));
-        return send_err(req, "403 Forbidden", "Неверный пароль");
+        return send_err(req, "403 Forbidden", "Wrong password");
     }
     s_login_fails = 0;
     char tok[33], cookie[100];
@@ -282,7 +282,7 @@ static esp_err_t h_logout(httpd_req_t *req)
     return send_json(req, "{\"ok\":true}");
 }
 
-/* ── Статус ─────────────────────────────────────────────────────── */
+/* ── Status ─────────────────────────────────────────────────────── */
 
 static const char *src_kind_str(kvm_src_kind_t k)
 {
@@ -374,7 +374,7 @@ static esp_err_t h_scan(httpd_req_t *req)
     return r;
 }
 
-/* ── Настройки ──────────────────────────────────────────────────── */
+/* ── Settings ───────────────────────────────────────────────────── */
 
 static esp_err_t h_config_get(httpd_req_t *req)
 {
@@ -384,7 +384,7 @@ static esp_err_t h_config_get(httpd_req_t *req)
     char ip[16];
     cJSON *j = cJSON_CreateObject();
     cJSON_AddStringToObject(j, "wifi_ssid", c.wifi_ssid);
-    cJSON_AddBoolToObject(j, "wifi_pass_set", c.wifi_pass[0] != 0);   /* секреты не отдаются */
+    cJSON_AddBoolToObject(j, "wifi_pass_set", c.wifi_pass[0] != 0);   /* secrets are never returned */
     cJSON_AddBoolToObject(j, "ts_auth_key_set", c.ts_auth_key[0] != 0);
     cJSON_AddStringToObject(j, "ts_ctrl_host", c.ts_ctrl_host);
     cJSON_AddStringToObject(j, "ts_hostname", c.ts_hostname);
@@ -413,16 +413,16 @@ static bool copy_str(char *dst, size_t n, const char *src)
     return true;
 }
 
-/* Применить поля из JSON к настройкам. Возвращает текст ошибки или NULL. */
+/* Apply JSON fields to the settings. Returns an error message or NULL. */
 static const char *apply_fields(cJSON *j, kvm_settings_t *c, bool *need_restart)
 {
     const char *s;
     if ((s = jstr(j, "wifi_ssid"))) {
-        if (!s[0] || !copy_str(c->wifi_ssid, sizeof(c->wifi_ssid), s)) return "Неверное имя сети";
+        if (!s[0] || !copy_str(c->wifi_ssid, sizeof(c->wifi_ssid), s)) return "Invalid network name";
         *need_restart = true;
     }
     if ((s = jstr(j, "wifi_pass")) && s[0]) {
-        if (strlen(s) < 8 || !copy_str(c->wifi_pass, sizeof(c->wifi_pass), s)) return "Пароль WiFi: 8–64 символа";
+        if (strlen(s) < 8 || !copy_str(c->wifi_pass, sizeof(c->wifi_pass), s)) return "WiFi password: 8-64 characters";
         *need_restart = true;
     }
     if (cJSON_IsTrue(cJSON_GetObjectItem(j, "wifi_open"))) {
@@ -430,52 +430,52 @@ static const char *apply_fields(cJSON *j, kvm_settings_t *c, bool *need_restart)
         *need_restart = true;
     }
     if ((s = jstr(j, "ts_auth_key")) && s[0]) {
-        if (!copy_str(c->ts_auth_key, sizeof(c->ts_auth_key), s)) return "Слишком длинный auth-ключ";
+        if (!copy_str(c->ts_auth_key, sizeof(c->ts_auth_key), s)) return "Auth key is too long";
         *need_restart = true;
     }
     if ((s = jstr(j, "ts_ctrl_host"))) {
-        if (!copy_str(c->ts_ctrl_host, sizeof(c->ts_ctrl_host), s)) return "Слишком длинный адрес control-сервера";
+        if (!copy_str(c->ts_ctrl_host, sizeof(c->ts_ctrl_host), s)) return "Control server address is too long";
         *need_restart = true;
     }
     if ((s = jstr(j, "ts_hostname"))) {
-        if (!copy_str(c->ts_hostname, sizeof(c->ts_hostname), s)) return "Слишком длинное имя устройства";
+        if (!copy_str(c->ts_hostname, sizeof(c->ts_hostname), s)) return "Device name is too long";
         for (const char *p = s; *p; p++) {
             if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-' ||
                   (*p >= 'A' && *p <= 'Z')))
-                return "Имя устройства: латиница, цифры и дефис";
+                return "Device name: Latin letters, digits and hyphens";
         }
         *need_restart = true;
     }
     int v;
     if ((v = jint(j, "udp_port", -1)) != -1) {
-        if (v < 1 || v > 65535) return "Неверный порт";
+        if (v < 1 || v > 65535) return "Invalid port";
         if (v != c->udp_port) *need_restart = true;
         c->udp_port = v;
     }
     if ((v = jint(j, "wd_ms", -1)) != -1) {
-        if (v < 50 || v > 5000) return "Сторож: 50–5000 мс";
+        if (v < 50 || v > 5000) return "Watchdog: 50-5000 ms";
         c->wd_ms = v;
     }
     if ((v = jint(j, "udp_wd_ms", -1)) != -1) {
-        if (v != 0 && (v < 50 || v > 5000)) return "Сторож UDP: 0 или 50–5000 мс";
+        if (v != 0 && (v < 50 || v > 5000)) return "UDP watchdog: 0 or 50-5000 ms";
         c->udp_wd_ms = v;
     }
     c->lan_rx = jbool(j, "lan_rx", c->lan_rx);
     c->web_lan = jbool(j, "web_lan", c->web_lan);
     c->web_ts = jbool(j, "web_ts", c->web_ts);
-    if (!c->web_lan && !c->web_ts) return "Нельзя выключить оба адреса веб-интерфейса";
+    if (!c->web_lan && !c->web_ts) return "Cannot disable both web UI addresses";
 
     cJSON *a = cJSON_GetObjectItem(j, "allow");
     if (cJSON_IsArray(a)) {
         int n = cJSON_GetArraySize(a);
-        if (n > KVM_MAX_ALLOWED) return "Слишком много адресов в списке";
+        if (n > KVM_MAX_ALLOWED) return "Too many addresses in the list";
         kvm_settings_t t = *c;
         t.allow_count = 0;
         for (int i = 0; i < n; i++) {
             cJSON *e = cJSON_GetArrayItem(a, i);
             const char *ips = jstr(e, "ip");
             uint32_t ip = ips ? microlink_parse_ip(ips) : 0;
-            if (!ip) return "Неверный IP-адрес в списке разрешённых";
+            if (!ip) return "Invalid IP address in the allowlist";
             t.allow_ip[t.allow_count] = ip;
             const char *lb = jstr(e, "label");
             strlcpy(t.allow_label[t.allow_count], lb ? lb : "", sizeof(t.allow_label[0]));
@@ -497,16 +497,16 @@ static void apply_runtime(const kvm_settings_t *c)
 static esp_err_t h_config_post(httpd_req_t *req)
 {
     REQUIRE_AUTH(req);
-    if (s_setup) return send_err(req, "409 Conflict", "Сначала завершите первичную настройку");
+    if (s_setup) return send_err(req, "409 Conflict", "Complete the initial setup first");
     cJSON *j = read_json(req);
-    if (!j) return send_err(req, "400 Bad Request", "Неверный JSON");
+    if (!j) return send_err(req, "400 Bad Request", "Invalid JSON");
     kvm_settings_t c;
     config_get(&c);
     bool restart = false;
     const char *e = apply_fields(j, &c, &restart);
     cJSON_Delete(j);
     if (e) return send_err(req, "400 Bad Request", e);
-    if (config_set(&c) != ESP_OK) return send_err(req, "500 Internal Server Error", "Ошибка записи NVS");
+    if (config_set(&c) != ESP_OK) return send_err(req, "500 Internal Server Error", "NVS write error");
     apply_runtime(&c);
     return send_json(req, restart ? "{\"ok\":true,\"restart\":true}" : "{\"ok\":true}");
 }
@@ -524,21 +524,21 @@ static void restart_later(int ms)
 
 static esp_err_t h_setup(httpd_req_t *req)
 {
-    if (!s_setup) return send_err(req, "409 Conflict", "Устройство уже настроено");
+    if (!s_setup) return send_err(req, "409 Conflict", "Device is already set up");
     cJSON *j = read_json(req);
-    if (!j) return send_err(req, "400 Bad Request", "Неверный JSON");
+    if (!j) return send_err(req, "400 Bad Request", "Invalid JSON");
     kvm_settings_t c;
     config_get(&c);
     bool restart = false;
     const char *e = apply_fields(j, &c, &restart);
     const char *pw = jstr(j, "password");
-    if (!e && (!c.wifi_ssid[0])) e = "Укажите WiFi-сеть";
-    if (!e && (!pw || config_hash_password(pw, &c) != ESP_OK)) e = "Пароль интерфейса: не короче 6 символов";
+    if (!e && (!c.wifi_ssid[0])) e = "Specify a WiFi network";
+    if (!e && (!pw || config_hash_password(pw, &c) != ESP_OK)) e = "UI password: at least 6 characters";
     cJSON_Delete(j);
     if (e) return send_err(req, "400 Bad Request", e);
     c.provisioned = true;
-    if (config_set(&c) != ESP_OK) return send_err(req, "500 Internal Server Error", "Ошибка записи NVS");
-    ESP_LOGI(TAG, "Первичная настройка завершена, перезагрузка");
+    if (config_set(&c) != ESP_OK) return send_err(req, "500 Internal Server Error", "NVS write error");
+    ESP_LOGI(TAG, "Initial setup complete, rebooting");
     restart_later(1500);
     return send_json(req, "{\"ok\":true,\"restart\":true}");
 }
@@ -547,16 +547,16 @@ static esp_err_t h_password(httpd_req_t *req)
 {
     REQUIRE_AUTH(req);
     cJSON *j = read_json(req);
-    if (!j) return send_err(req, "400 Bad Request", "Неверный JSON");
+    if (!j) return send_err(req, "400 Bad Request", "Invalid JSON");
     const char *old = jstr(j, "old"), *nw = jstr(j, "new");
     esp_err_t r;
     if (!old || !config_check_password(old)) {
-        r = send_err(req, "403 Forbidden", "Текущий пароль неверен");
+        r = send_err(req, "403 Forbidden", "Current password is wrong");
     } else {
         kvm_settings_t c;
         config_get(&c);
         if (!nw || config_hash_password(nw, &c) != ESP_OK) {
-            r = send_err(req, "400 Bad Request", "Новый пароль: не короче 6 символов");
+            r = send_err(req, "400 Bad Request", "New password: at least 6 characters");
         } else {
             config_set(&c);
             memset(s_sessions, 0, sizeof(s_sessions));
@@ -595,9 +595,9 @@ static esp_err_t h_ota(httpd_req_t *req)
 {
     REQUIRE_AUTH(req);
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
-    if (!part) return send_err(req, "500 Internal Server Error", "Нет OTA-раздела");
+    if (!part) return send_err(req, "500 Internal Server Error", "No OTA partition");
     if (req->content_len == 0 || req->content_len > part->size)
-        return send_err(req, "400 Bad Request", "Неверный размер прошивки");
+        return send_err(req, "400 Bad Request", "Invalid firmware size");
 
     esp_ota_handle_t h;
     if (esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &h) != ESP_OK)
@@ -617,13 +617,13 @@ static esp_err_t h_ota(httpd_req_t *req)
     free(buf);
     if (err != ESP_OK) {
         esp_ota_abort(h);
-        return send_err(req, "500 Internal Server Error", "Ошибка приёма прошивки");
+        return send_err(req, "500 Internal Server Error", "Error receiving firmware");
     }
     if (esp_ota_end(h) != ESP_OK)
-        return send_err(req, "400 Bad Request", "Образ прошивки повреждён или не для этой платы");
+        return send_err(req, "400 Bad Request", "Firmware image is corrupt or not for this board");
     if (esp_ota_set_boot_partition(part) != ESP_OK)
         return send_err(req, "500 Internal Server Error", "esp_ota_set_boot_partition");
-    ESP_LOGI(TAG, "OTA записано в %s, перезагрузка", part->label);
+    ESP_LOGI(TAG, "OTA written to %s, rebooting", part->label);
     restart_later(1000);
     return send_json(req, "{\"ok\":true}");
 }
@@ -709,7 +709,7 @@ static esp_err_t h_ws(httpd_req_t *req)
         if (strstr((char *)buf, "\"release\"")) {
             kvm_input_release_source(&src);
         } else if (strstr((char *)buf, "\"take\"")) {
-            /* Явный перехват управления другим браузером. */
+            /* Explicit takeover of control by another browser. */
             int old = s_ws_owner;
             if (old != fd) {
                 if (old >= 0) {
@@ -727,7 +727,7 @@ static esp_err_t h_ws(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* ── Запуск ─────────────────────────────────────────────────────── */
+/* ── Startup ────────────────────────────────────────────────────── */
 
 esp_err_t web_ui_start(bool setup_mode)
 {
@@ -777,6 +777,6 @@ esp_err_t web_ui_start(bool setup_mode)
         httpd_register_uri_handler(s_hd, &uris[i]);
     }
     usb_hid_set_leds_cb(on_leds);
-    ESP_LOGI(TAG, "Веб-интерфейс на порту 80 (%s)", setup_mode ? "первичная настройка" : "рабочий режим");
+    ESP_LOGI(TAG, "Web UI on port 80 (%s)", setup_mode ? "initial setup" : "normal mode");
     return ESP_OK;
 }

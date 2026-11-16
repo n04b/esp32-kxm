@@ -1,4 +1,4 @@
-/* Веб-интерфейс: страница, REST API, WebSocket для управления, OTA. */
+/* Web UI: page, REST API, control WebSocket, OTA. */
 #pragma once
 #include <stdbool.h>
 #include "esp_err.h"

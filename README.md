@@ -1,95 +1,93 @@
-# ESP32-S3 K¯\\_(ツ)_/¯M через Tailscale
+# ESP32-S3 K¯\\_(ツ)_/¯M over Tailscale
 
-Прошивка для ESP32-S3 SuperMini (ESP32-S3FH4R2). Плата подключается к USB целевого ПК как клавиатура и мышь, сама входит в tailnet и принимает ввод из своего веб-интерфейса в браузере или по UDP от сервера [esp32-kvm-ip](https://github.com/KMChris/esp32-kvm-ip). Драйверы на целевом ПК не нужны.
+Firmware for the ESP32-S3 SuperMini (ESP32-S3FH4R2). The board plugs into the target PC's USB as a keyboard and mouse, joins the tailnet itself, and takes input from its own web UI in a browser or over UDP from the [esp32-kvm-ip](https://github.com/KMChris/esp32-kvm-ip) server. No drivers are needed on the target PC.
 
-Схема подключения (интерактивная, открывается в браузере): [docs/wiring/kvm-wiring.html](docs/wiring/kvm-wiring.html).
+## Building
 
-## Сборка
+Requires ESP-IDF v5.3 (tested on v5.3.2). The component manager downloads the `esp_tinyusb` and `led_strip` dependencies on the first build.
 
-Нужен ESP-IDF v5.3 (проверено на v5.3.2). Зависимости `esp_tinyusb` и `led_strip` менеджер компонентов скачает при первой сборке.
-
-SuperMini, 4 МБ flash, с OTA (основной вариант):
+SuperMini, 4 MB flash, with OTA (main variant):
 
 ```bash
 idf.py -B build -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.supermini" set-target esp32s3 build
 ```
 
-SuperMini без OTA (запасной вариант, если прошивка перерастёт 1920 КБ):
+SuperMini without OTA (fallback, if the firmware outgrows 1920 KB):
 
 ```bash
 idf.py -B build-noota -D SDKCONFIG=build-noota/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.supermini;sdkconfig.defaults.supermini_noota" set-target esp32s3 build
 ```
 
-N16R8 (16 МБ flash, 8 МБ octal PSRAM), код тот же:
+N16R8 (16 MB flash, 8 MB octal PSRAM), same code:
 
 ```bash
 idf.py -B build-n16r8 -D SDKCONFIG=build-n16r8/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.n16r8" set-target esp32s3 build
 ```
 
-Размер прошивки при сборке v0.1.0: около 986 КБ, в слоте OTA 1920 КБ свободно 49%.
+Firmware size as of v0.1.0: about 986 KB, leaving 49% of the 1920 KB OTA slot free.
 
-## Прошивка по кабелю
+## Flashing over the cable
 
-Нативный USB занят HID, поэтому для прошивки по кабелю нужно удерживать BOOT при подключении платы:
+Native USB is taken by HID, so to flash over the cable, hold BOOT while plugging the board in:
 
 ```bash
 idf.py -B build -p /dev/cu.usbmodemXXXX flash
 ```
 
-Логи идут на UART0: TX = GPIO43, RX = GPIO44, 115200. Подключите USB-UART адаптер. Пины меняются в `menuconfig` → Component config → ESP System Settings → Channel for console output.
+Logs go to UART0: TX = GPIO43, RX = GPIO44, 115200 baud. Connect a USB-UART adapter. The pins can be changed in `menuconfig` → Component config → ESP System Settings → Channel for console output.
 
-## Первый запуск
+## First boot
 
-1. Плата без настроек поднимает точку доступа `kvm-setup-XXXX`. Пароль по умолчанию `kvmsetup` (задаётся в `menuconfig` → ESP32 KVM → Сеть), он также печатается в лог UART.
-2. Откройте `http://192.168.4.1/` и задайте WiFi, auth-ключ Tailscale, имя устройства, tailnet-адрес управляющего ПК и пароль интерфейса.
-3. Плата перезагрузится, подключится к WiFi и войдёт в tailnet. Интерфейс доступен по `http://<tailnet-адрес>/` и по локальному адресу.
+1. An unconfigured board starts the `kvm-setup-XXXX` access point. The default password is `kvmsetup` (set in `menuconfig` → ESP32 KVM → Network); it is also printed to the UART log.
+2. Open `http://192.168.4.1/` and set WiFi, the Tailscale auth key, the device name, the tailnet address of the controlling PC, and the UI password.
+3. The board reboots, connects to WiFi and joins the tailnet. The UI is available at `http://<tailnet-address>/` and at the local address.
 
-Удержание BOOT 5 секунд в рабочем режиме стирает настройки и ключи узла и возвращает режим первичной настройки.
+Holding BOOT for 5 seconds in normal mode erases the settings and node keys and returns the board to initial setup mode.
 
-## Светодиод (WS2812 на GPIO48)
+## LED (WS2812 on GPIO48)
 
-| Состояние | Индикация |
+| State | Indication |
 |---|---|
-| Первичная настройка | синий, мигает 1 Гц |
-| Нет WiFi | красный, мигает часто |
-| WiFi есть, Tailscale нет | жёлтый, мигает медленно |
-| Всё подключено | зелёный |
-| Идёт ввод | мерцает голубым |
-| Удерживается BOOT | мигает белым |
+| Initial setup | blue, blinking at 1 Hz |
+| No WiFi | red, blinking fast |
+| WiFi up, Tailscale down | yellow, blinking slowly |
+| All connected | green |
+| Input in progress | flickering cyan |
+| BOOT held | blinking white |
 
-Для платы с обычным светодиодом: `menuconfig` → ESP32 KVM → Плата, выключить WS2812 и указать GPIO.
+For a board with a plain LED: `menuconfig` → ESP32 KVM → Board, disable WS2812 and set the GPIO.
 
-## Устройство прошивки
+## Firmware structure
 
-| Модуль | Что делает | Ядро |
+| Module | What it does | Core |
 |---|---|---|
-| `usb_hid.c` | TinyUSB, ITF0 клавиатура (boot-протокол), ITF1 мышь и consumer, опрос 1 мс | 1 |
-| `kvm_input.c` | Состояние ввода, сторож связи, один источник, фильтр порядка, счётчики | 1 |
-| `kvm_rx.c` | UDP из tailnet (сокет MicroLink) и, по настройке, из LAN | 1 |
-| `net_wifi.c` | STA без Modem Sleep, переподключение с паузой до 10 с, AP настройки | 0 |
-| `ts_client.c` | MicroLink: регистрация, WireGuard, DISCO, DERP | 0 |
-| `web_ui.c` | HTTP, REST, WebSocket, сессии, OTA | 0 |
-| `app_config.c` | Настройки в NVS, пароль в виде PBKDF2-SHA256 | — |
-| `status.c` | Светодиод и кнопка BOOT | 0 |
+| `usb_hid.c` | TinyUSB, ITF0 keyboard (boot protocol), ITF1 mouse and consumer, 1 ms polling | 1 |
+| `kvm_input.c` | Input state, link watchdog, single source, ordering filter, counters | 1 |
+| `kvm_rx.c` | UDP from the tailnet (MicroLink socket) and, if enabled, from LAN | 1 |
+| `net_wifi.c` | STA without Modem Sleep, reconnects with up to 10 s backoff, setup AP | 0 |
+| `ts_client.c` | MicroLink: registration, WireGuard, DISCO, DERP | 0 |
+| `web_ui.c` | HTTP, REST, WebSocket, sessions, OTA | 0 |
+| `app_config.c` | Settings in NVS, password stored as PBKDF2-SHA256 | — |
+| `status.c` | LED and BOOT button | 0 |
 
-MicroLink лежит в `components/microlink` (MIT, коммит в `UPSTREAM_COMMIT`). Отличия от оригинала:
+MicroLink lives in `components/microlink` (MIT, commit in `UPSTREAM_COMMIT`). Differences from upstream:
 
-- задачи `ml_coord` и `ml_wg_mgr` перенесены на ядро 0 (`include/microlink_internal.h`), чтобы рукопожатия WireGuard не мешали вводу на ядре 1;
-- `wireguard_lwip` вынесен в `components/wireguard_lwip`, чтобы его нашла сборка;
-- собственный веб-сервер MicroLink выключен (`CONFIG_ML_ENABLE_CONFIG_HTTPD=n`), буферы H2 и JSON уменьшены до 256 КБ через Kconfig.
+- the `ml_coord` and `ml_wg_mgr` tasks are moved to core 0 (`include/microlink_internal.h`) so WireGuard handshakes do not interfere with input on core 1;
+- `wireguard_lwip` is moved out to `components/wireguard_lwip` so the build can find it;
+- MicroLink's own web server is disabled (`CONFIG_ML_ENABLE_CONFIG_HTTPD=n`), and the H2 and JSON buffers are reduced to 256 KB via Kconfig.
 
-## Протокол и поведение ввода
+## Protocol and input behavior
 
-UDP-протокол esp32-kvm-ip не изменён: 16 байт, `magic 0xCAFE`, 32-битный `sequence`, тип события (мышь, клавиатура, consumer). Браузер шлёт по WebSocket те же 16-байтные пакеты.
+The esp32-kvm-ip UDP protocol is unchanged: 16 bytes, `magic 0xCAFE`, a 32-bit `sequence`, and an event type (mouse, keyboard, consumer). The browser sends the same 16-byte packets over WebSocket.
 
-- **Порядок пакетов.** В пакете есть счётчик `sequence`, прошивка отбрасывает старые и повторные пакеты так же, как исходный проект.
-- **Движение мыши.** Пакеты мыши несут приращения, а не состояние, поэтому вместо очереди длиной 1 с перезаписью прошивка складывает приращения до следующего опроса USB. Движение не теряется.
-- **Сторож связи.** Отдельные таймауты для браузера и для UDP, по умолчанию 200 мс. Браузер, пока что-то зажато, повторяет состояние каждые 50 мс. Сервер esp32-kvm-ip шлёт пакеты только при изменениях, поэтому при стороже UDP 200 мс клавиша, которую держат дольше без другого ввода, будет отпущена. Если это мешает, поставьте сторож UDP 0 в разделе KVM.
-- **Список разрешённых** применяется к UDP (tailnet и LAN). Браузер защищён паролем интерфейса и списком не ограничивается.
-- **BIOS/UEFI.** Клавиатура объявлена отдельным интерфейсом с boot-протоколом, мышь тоже понимает boot-протокол (3 байта), но в BIOS не гарантируется.
+- **Packet order.** Each packet carries a `sequence` counter; the firmware drops old and duplicate packets the same way the original project does.
+- **Mouse motion.** Mouse packets carry deltas, not state, so instead of a length-1 overwrite queue the firmware accumulates deltas until the next USB poll. No motion is lost.
+- **Link watchdog.** Separate timeouts for the browser and for UDP, 200 ms by default. While anything is held, the browser repeats the state every 50 ms. The esp32-kvm-ip server only sends packets on changes, so with a 200 ms UDP watchdog a key held longer than that without other input will be released. If that is a problem, set the UDP watchdog to 0 in the KVM section.
+- **Allowlist** applies to UDP (tailnet and LAN). The browser is protected by the UI password and is not restricted by the list.
+- **BIOS/UEFI.** The keyboard is a separate boot-protocol interface. The mouse also understands the boot protocol (3 bytes), but is not guaranteed to work in BIOS.
 
-## Проверено и не проверено
+## Tested and untested
 
-Проверено: сборка всех трёх вариантов на ESP-IDF v5.3.2, юнит-тест логики `kvm_input` на компьютере, вёрстка страницы на заглушечном API.
+Tested: builds of all three variants on ESP-IDF v5.3.2, a host-side unit test of the `kvm_input` logic, and the page layout against a stub API.
 
-Не проверено на железе: всё остальное, в том числе перечисление USB на Windows, macOS и Linux, работа в BIOS, регистрация в tailnet, входящие TCP-соединения к веб-интерфейсу по tailnet-адресу, задержка и расход памяти за 8 часов. Это этапы приёмки из ТЗ.
+Not tested on hardware: everything else, including USB enumeration on Windows, macOS and Linux, operation in BIOS, tailnet registration, incoming TCP connections to the web UI on the tailnet address, and latency and memory usage over 8 hours. These are the acceptance stages from the spec.

@@ -53,7 +53,7 @@ static void led_init(void)
     };
     led_strip_rmt_config_t rc = { .resolution_hz = 10 * 1000 * 1000 };
     if (led_strip_new_rmt_device(&sc, &rc, &s_strip) != ESP_OK) {
-        ESP_LOGW(TAG, "WS2812 на GPIO%d не инициализирован", CONFIG_KVM_LED_GPIO);
+        ESP_LOGW(TAG, "WS2812 on GPIO%d failed to initialize", CONFIG_KVM_LED_GPIO);
         s_strip = NULL;
     }
 #else
@@ -92,13 +92,13 @@ static void status_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(50));
         tick++;
 
-        /* ── Кнопка BOOT ── */
+        /* ── BOOT button ── */
         if (gpio_get_level(CONFIG_KVM_BOOT_BUTTON_GPIO) == 0) {
             int64_t now = esp_timer_get_time();
             if (!pressed_since) pressed_since = now;
             int64_t held = (now - pressed_since) / 1000;
             if (held >= CONFIG_KVM_FACTORY_RESET_HOLD_MS) {
-                ESP_LOGW(TAG, "BOOT удержана %d мс — сброс настроек", CONFIG_KVM_FACTORY_RESET_HOLD_MS);
+                ESP_LOGW(TAG, "BOOT held for %d ms, factory reset", CONFIG_KVM_FACTORY_RESET_HOLD_MS);
                 for (int i = 0; i < 10; i++) {
                     led_set(i & 1, 255, 0, 0);
                     vTaskDelay(pdMS_TO_TICKS(80));
@@ -106,19 +106,19 @@ static void status_task(void *arg)
                 config_factory_reset();
                 esp_restart();
             }
-            /* пока держат — частое мигание белым */
+            /* while held: fast white blinking */
             led_set((tick & 1), 40, 40, 40);
             continue;
         }
         pressed_since = 0;
 
-        /* ── Светодиод ── */
+        /* ── LED ── */
         switch (current_state()) {
-        case ST_SETUP:   led_set((tick / 10) & 1, 0, 0, 40); break;        /* синий, 1 Гц */
-        case ST_NO_WIFI: led_set((tick / 2) & 1, 40, 0, 0); break;         /* красный, часто */
-        case ST_NO_TS:   led_set((tick / 10) & 1, 40, 25, 0); break;       /* жёлтый, медленно */
-        case ST_OK:      led_set(true, 0, 20, 0); break;                   /* зелёный */
-        case ST_INPUT:   led_set((tick & 1), 0, 40, 40); break;            /* мерцание */
+        case ST_SETUP:   led_set((tick / 10) & 1, 0, 0, 40); break;        /* blue, 1 Hz */
+        case ST_NO_WIFI: led_set((tick / 2) & 1, 40, 0, 0); break;         /* red, fast */
+        case ST_NO_TS:   led_set((tick / 10) & 1, 40, 25, 0); break;       /* yellow, slow */
+        case ST_OK:      led_set(true, 0, 20, 0); break;                   /* green */
+        case ST_INPUT:   led_set((tick & 1), 0, 40, 40); break;            /* flicker */
         }
     }
 }

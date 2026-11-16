@@ -1,6 +1,6 @@
 /*
- * Сетевой протокол esp32-kvm-ip (без изменений): 16 байт, little-endian.
- * Используется и для UDP, и для бинарных сообщений WebSocket веб-интерфейса.
+ * esp32-kvm-ip network protocol (unchanged): 16 bytes, little-endian.
+ * Used both for UDP and for binary WebSocket messages from the web UI.
  */
 #pragma once
 #include <stdint.h>

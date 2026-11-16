@@ -10,14 +10,14 @@
 
 static const char *TAG = "kvm_in";
 
-/* Источник считается свободным, если от него нет пакетов столько мс,
- * даже если сторож для него выключен (udp_wd_ms = 0). */
+/* A source is considered free if no packets arrived from it for this many ms,
+ * even if its watchdog is disabled (udp_wd_ms = 0). */
 #define SOURCE_IDLE_RELEASE_MS 2000
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static struct {
-    /* состояние, которое должно оказаться на хосте */
+    /* state that should end up on the host */
     uint8_t  kbd[8];
     bool     kbd_dirty;
     uint8_t  buttons;
@@ -26,16 +26,16 @@ static struct {
     uint16_t consumer;
     bool     consumer_dirty;
 
-    /* источник */
+    /* source */
     kvm_source_t active;
     int64_t  last_rx_us;
     uint32_t last_seq;
 
-    /* сторож */
+    /* watchdog */
     uint32_t wd_ws_ms;
     uint32_t wd_udp_ms;
 
-    /* счётчики */
+    /* counters */
     kvm_stats_t st;
     uint32_t rate_count;
     int64_t  rate_window_us;
@@ -119,9 +119,9 @@ kvm_in_result_t kvm_input_packet(const kvm_source_t *src, const uint8_t *data, s
     }
     if (s.active.kind == KVM_SRC_NONE) {
         s.active = *src;
-        s.last_seq = pkt.sequence - 1;   /* первый пакет нового источника принимаем */
+        s.last_seq = pkt.sequence - 1;   /* accept the first packet of a new source */
     } else {
-        /* Фильтр порядка, как в esp32-kvm-ip (устойчив к переполнению 32 бит). */
+        /* Ordering filter, as in esp32-kvm-ip (safe against 32-bit wraparound). */
         int32_t diff = (int32_t)(pkt.sequence - s.last_seq);
         if (diff <= 0 && diff > -1000) {
             count_drop_locked(&s.st.dropped_stale);
@@ -223,7 +223,7 @@ void kvm_input_tick(void)
     portEXIT_CRITICAL(&s_lock);
 
     if (tripped) {
-        ESP_LOGW(TAG, "Сторож связи: нет пакетов, все клавиши отпущены");
+        ESP_LOGW(TAG, "Link watchdog: no packets, all keys released");
         usb_hid_kick();
     }
 }

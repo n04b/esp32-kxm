@@ -1,3 +1,3 @@
-# ── SuperMini, запасной вариант без OTA (если прошивка > 1920 КБ) ──
+# ── SuperMini, fallback no-OTA variant (if firmware > 1920 KB) ──
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb_noota.csv"
 CONFIG_KVM_ENABLE_OTA=n

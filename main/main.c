@@ -1,7 +1,7 @@
 /*
- * ESP32-S3 KVM через Tailscale.
- * USB HID (клавиатура boot + мышь) ← ввод из веб-интерфейса (WebSocket)
- * или UDP по протоколу esp32-kvm-ip через tailnet (MicroLink).
+ * ESP32-S3 KVM over Tailscale.
+ * USB HID (boot keyboard + mouse) <- input from the web UI (WebSocket)
+ * or UDP using the esp32-kvm-ip protocol over the tailnet (MicroLink).
  */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,15 +29,15 @@ static void mark_app_valid_when_healthy(void)
     const esp_partition_t *run = esp_ota_get_running_partition();
     esp_ota_img_states_t st;
     if (esp_ota_get_state_partition(run, &st) != ESP_OK || st != ESP_OTA_IMG_PENDING_VERIFY) return;
-    /* Новая прошивка считается рабочей, когда поднялся WiFi и Tailscale
-     * (или через 5 минут работы без перезагрузок). */
+    /* New firmware is marked valid once WiFi and Tailscale are up
+     * (or after 5 minutes of running without a reboot). */
     int64_t t0 = esp_timer_get_time();
     while (!(net_wifi_connected() && ts_client_connected()) &&
            esp_timer_get_time() - t0 < 300LL * 1000000) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     esp_ota_mark_app_valid_cancel_rollback();
-    ESP_LOGI(TAG, "Прошивка подтверждена (откат отменён)");
+    ESP_LOGI(TAG, "Firmware confirmed (rollback cancelled)");
 #endif
 }
 
@@ -54,7 +54,7 @@ void app_main(void)
 
     config_init();
     if (config_take_rereg_flag()) {
-        ESP_LOGW(TAG, "Перерегистрация в Tailscale: сброс ключей узла");
+        ESP_LOGW(TAG, "Re-registering with Tailscale: node keys erased");
         microlink_factory_reset();
     }
 

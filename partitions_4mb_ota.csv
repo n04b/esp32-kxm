@@ -1,4 +1,4 @@
-# ESP32-S3 SuperMini (4 МБ flash), вариант с OTA (основной)
+# ESP32-S3 SuperMini (4 MB flash), OTA variant (main)
 # Name,    Type, SubType, Offset,   Size
 nvs,       data, nvs,     0x9000,   24K
 otadata,   data, ota,     0xF000,   8K

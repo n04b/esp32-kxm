@@ -19,7 +19,7 @@ static uint16_t s_port;
 static bool s_no_key;
 static volatile bool s_started;
 
-/* Строки должны жить всё время работы MicroLink. */
+/* These strings must live as long as MicroLink runs. */
 static char s_auth_key[128];
 static char s_hostname[48];
 static char s_ctrl_host[64];
@@ -27,7 +27,7 @@ static char s_ctrl_host[64];
 static void on_state(microlink_t *ml, microlink_state_t st, void *ud)
 {
     (void)ml; (void)ud;
-    ESP_LOGI(TAG, "Состояние: %d", st);
+    ESP_LOGI(TAG, "State: %d", st);
     if (s_task) xTaskNotifyGive(s_task);
 }
 
@@ -41,7 +41,7 @@ static void on_udp_rx(microlink_udp_socket_t *sock, uint32_t src_ip, uint16_t sr
 static void on_wifi_ip(bool reconnect)
 {
     if (reconnect && s_started && s_ml) {
-        ESP_LOGI(TAG, "WiFi вернулся — перепривязка сокетов MicroLink");
+        ESP_LOGI(TAG, "WiFi is back, rebinding MicroLink sockets");
         microlink_rebind(s_ml);
     }
 }
@@ -52,7 +52,7 @@ static void ts_task(void *arg)
     net_wifi_wait_connected(portMAX_DELAY);
 
     if (microlink_start(s_ml) != ESP_OK) {
-        ESP_LOGE(TAG, "microlink_start не удался");
+        ESP_LOGE(TAG, "microlink_start failed");
         vTaskDelete(NULL);
     }
     s_started = true;
@@ -66,7 +66,7 @@ static void ts_task(void *arg)
                 microlink_udp_set_rx_callback(s_udp, on_udp_rx, NULL);
                 char ip[16];
                 microlink_ip_to_str(microlink_get_vpn_ip(s_ml), ip);
-                ESP_LOGI(TAG, "Приём ввода: %s:%u (UDP через tailnet)", ip, s_port);
+                ESP_LOGI(TAG, "Receiving input: %s:%u (UDP over tailnet)", ip, s_port);
             }
         }
     }
@@ -78,7 +78,7 @@ esp_err_t ts_client_start(const kvm_settings_t *cfg)
     s_port = cfg->udp_port;
     if (!cfg->ts_auth_key[0]) {
         s_no_key = true;
-        ESP_LOGW(TAG, "Auth-ключ Tailscale не задан — tailnet не используется");
+        ESP_LOGW(TAG, "Tailscale auth key not set, tailnet disabled");
         return ESP_OK;
     }
     strlcpy(s_auth_key, cfg->ts_auth_key, sizeof(s_auth_key));
@@ -97,12 +97,12 @@ esp_err_t ts_client_start(const kvm_settings_t *cfg)
     };
     s_ml = microlink_init(&mc);
     if (!s_ml) {
-        ESP_LOGE(TAG, "microlink_init не удался");
+        ESP_LOGE(TAG, "microlink_init failed");
         return ESP_FAIL;
     }
     if (s_ctrl_host[0]) {
         strlcpy(s_ml->ctrl_host, s_ctrl_host, sizeof(s_ml->ctrl_host));
-        ESP_LOGI(TAG, "Control-сервер: %s", s_ctrl_host);
+        ESP_LOGI(TAG, "Control server: %s", s_ctrl_host);
     }
     microlink_set_state_callback(s_ml, on_state, NULL);
 
@@ -133,12 +133,12 @@ const char *ts_client_state_str(void)
 
 const char *ts_client_error(void)
 {
-    if (s_no_key) return "Не задан auth-ключ Tailscale";
+    if (s_no_key) return "Tailscale auth key is not set";
     if (!s_ml) return NULL;
     if (s_ml->key_expired)
-        return "Ключ узла истёк. Если auth-ключ тоже недействителен, введите новый и нажмите «Перерегистрация»";
+        return "Node key expired. If the auth key is also invalid, enter a new one and press \"Re-register\"";
     if (microlink_get_state(s_ml) == ML_STATE_ERROR)
-        return "Ошибка регистрации в tailnet: проверьте auth-ключ и адрес control-сервера";
+        return "Tailnet registration failed: check the auth key and control server address";
     return NULL;
 }
 
@@ -164,7 +164,7 @@ void ts_client_peers_json(char *buf, size_t len)
         if (microlink_get_peer_info(s_ml, i, &info) != ESP_OK) continue;
         char ip[16], host[64];
         microlink_ip_to_str(info.vpn_ip, ip);
-        /* имя хоста из tailnet: убираем кавычки и обратные слэши */
+        /* hostname from the tailnet: strip quotes and backslashes */
         size_t j = 0;
         for (size_t k = 0; info.hostname[k] && j < sizeof(host) - 1; k++) {
             char c = info.hostname[k];

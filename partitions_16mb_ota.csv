@@ -1,4 +1,4 @@
-# ESP32-S3 N16R8 (16 МБ flash), вариант с OTA
+# ESP32-S3 N16R8 (16 MB flash), OTA variant
 # Name,    Type, SubType, Offset,   Size
 nvs,       data, nvs,     0x9000,   24K
 otadata,   data, ota,     0xF000,   8K

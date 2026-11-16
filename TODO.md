@@ -1,56 +1,56 @@
 # TODO
 
-## 1. Ограничение неправильных логинов с сохранением в NVS
+## 1. Limit failed logins, persisted in NVS
 
-Сейчас (`main/web_ui.c`, `h_login`) после 5 неверных паролей вход блокируется на 60 с. Счётчик `s_login_fails` и `s_login_block_until` живут только в RAM: перезагрузка платы (или падение по watchdog) обнуляет защиту, и перебор можно продолжать.
+Currently (`main/web_ui.c`, `h_login`) login is blocked for 60 s after 5 wrong passwords. The `s_login_fails` counter and `s_login_block_until` live only in RAM: rebooting the board (or a watchdog crash) resets the protection, and brute-forcing can continue.
 
-Что сделать:
+To do:
 
-- Хранить в NVS (отдельный ключ в пространстве `kvm`, не в блобе `cfg`): число неудачных попыток подряд и уровень блокировки.
-- Нарастающая пауза: 5 ошибок → 1 мин, следующие 5 → 5 мин, затем 15 мин, дальше 1 ч (потолок). Успешный вход сбрасывает всё.
-- Время блокировки считать по `esp_timer` от загрузки; при перезагрузке во время блокировки начинать паузу заново с текущего уровня (часов реального времени до SNTP нет, поэтому «оставшееся время» не восстановить точно — безопаснее отсчитать заново).
-- Писать в NVS только при изменении счётчика, чтобы не изнашивать flash (перебор и так упирается в паузу).
-- Ту же логику применить к смене пароля (`old` в обработчике смены пароля, строка ~553) — сейчас там проверка без ограничения.
-- Ответ при блокировке: `429` с оставшимся временем в секундах, на странице показывать таймер.
-- Записывать в лог UART адрес клиента и момент блокировки.
-- Сброс кнопкой BOOT (5 с) должен стирать и этот счётчик (уже стирается `nvs_erase_all`, проверить).
-- Открытый вопрос: счётчик общий или по IP. Общий проще и надёжнее против перебора с разных адресов tailnet, но позволяет заблокировать владельца. Начать с общего.
+- Store in NVS (a separate key in the `kvm` namespace, not in the `cfg` blob): the number of consecutive failed attempts and the lockout level.
+- Escalating delay: 5 failures → 1 min, next 5 → 5 min, then 15 min, then 1 h (cap). A successful login resets everything.
+- Measure lockout time with `esp_timer` since boot; if the board reboots during a lockout, restart the delay at the current level (there is no real-time clock before SNTP, so the "remaining time" cannot be restored exactly; restarting the countdown is the safer choice).
+- Write to NVS only when the counter changes, to avoid flash wear (brute-forcing is throttled by the delay anyway).
+- Apply the same logic to password change (`old` in the password change handler, around line 553); it currently has no limit.
+- Response while locked: `429` with the remaining time in seconds; show a countdown on the page.
+- Log the client address and lockout moment to the UART log.
+- The BOOT reset (5 s) must erase this counter too (it should already be erased by `nvs_erase_all`, verify).
+- Open question: one global counter or per IP. Global is simpler and more robust against brute-forcing from different tailnet addresses, but lets an attacker lock out the owner. Start with global.
 
-## 2. Поддержка MQTT
+## 2. MQTT support
 
-Цель: интеграция с Home Assistant / Node-RED и управление без браузера.
+Goal: integration with Home Assistant / Node-RED and control without a browser.
 
-- Клиент `esp-mqtt` из ESP-IDF, задача на ядре 0, чтобы не мешать вводу на ядре 1.
-- Настройки в веб-интерфейсе: адрес брокера (через tailnet или LAN), порт, логин/пароль, TLS вкл/выкл, префикс топиков (по умолчанию `kvm/<имя устройства>`).
-- Публикация статуса (retain): `.../status` (online/offline через LWT), WiFi RSSI, состояние Tailscale, аптайм, свободная память, версия прошивки, активный источник ввода.
-- Команды (подписка):
-  - `.../cmd/text` — напечатать строку (раскладка US, с задержкой между символами);
-  - `.../cmd/key` — комбинация клавиш (`ctrl+alt+del`, `win+l`);
-  - `.../cmd/consumer` — громкость, play/pause, mute;
-  - `.../cmd/wake` — разбудить ПК (движение мыши или клавиша).
-- Ввод по MQTT идёт через `kvm_input` как отдельный источник со своим сторожем, чтобы не конфликтовать с браузером и UDP.
-- Home Assistant MQTT Discovery: кнопки для частых комбинаций, сенсоры статуса.
-- Безопасность: MQTT выключен по умолчанию; без TLS — только для брокера в tailnet. Пароль брокера хранить в NVS рядом с остальными ключами.
-- Проверить размер: esp-mqtt + TLS добавят ~40–60 КБ, в слоте OTA 4 МБ запас есть (49%), в варианте без OTA тоже.
+- `esp-mqtt` client from ESP-IDF, task on core 0 so it does not interfere with input on core 1.
+- Settings in the web UI: broker address (via tailnet or LAN), port, username/password, TLS on/off, topic prefix (default `kvm/<device name>`).
+- Status publishing (retain): `.../status` (online/offline via LWT), WiFi RSSI, Tailscale state, uptime, free memory, firmware version, active input source.
+- Commands (subscribed):
+  - `.../cmd/text`: type a string (US layout, with a delay between characters);
+  - `.../cmd/key`: a key combination (`ctrl+alt+del`, `win+l`);
+  - `.../cmd/consumer`: volume, play/pause, mute;
+  - `.../cmd/wake`: wake the PC (mouse move or key press).
+- MQTT input goes through `kvm_input` as a separate source with its own watchdog, so it does not conflict with the browser and UDP.
+- Home Assistant MQTT Discovery: buttons for common combinations, status sensors.
+- Security: MQTT is off by default; without TLS, only for a broker inside the tailnet. Store the broker password in NVS alongside the other keys.
+- Check size: esp-mqtt + TLS add ~40–60 KB; the 4 MB OTA slot has headroom (49%), and so does the no-OTA variant.
 
-## 3. Bluetooth и мобильное приложение-клавиатура
+## 3. Bluetooth and a mobile keyboard app
 
-Цель: управлять ПК с телефона рядом, без WiFi и tailnet.
+Goal: control the PC from a nearby phone without WiFi or the tailnet.
 
-Прошивка:
+Firmware:
 
-- ESP32-S3 поддерживает только BLE (без Classic). Стек NimBLE (легче Bluedroid по RAM и flash).
-- Свой GATT-сервис: характеристика записи (write without response) для тех же 16-байтных пакетов, что идут по UDP/WebSocket (`magic 0xCAFE`, `sequence`), характеристика уведомлений для статуса.
-- Ввод из BLE — ещё один источник в `kvm_input` со своим сторожем.
-- Сопряжение только с подтверждением: LE Secure Connections + passkey, ключ показывается в веб-интерфейсе/в логе; режим сопряжения включается из интерфейса или кнопкой BOOT (короткое нажатие), а не всегда.
-- Хранение связок (bonding) в NVS, список сопряжённых устройств и удаление в веб-интерфейсе.
-- Сосуществование с WiFi: BLE и WiFi делят одно радио, проверить влияние на задержку tailnet. Возможно, сделать BLE опциональным в `menuconfig` и по умолчанию выключать в варианте 4 МБ без OTA.
-- Оценить размер: NimBLE ≈ 100–150 КБ flash и ~40 КБ RAM.
+- ESP32-S3 supports BLE only (no Classic). Use the NimBLE stack (lighter than Bluedroid in RAM and flash).
+- Custom GATT service: a write characteristic (write without response) for the same 16-byte packets used over UDP/WebSocket (`magic 0xCAFE`, `sequence`), and a notify characteristic for status.
+- BLE input is another source in `kvm_input` with its own watchdog.
+- Pairing only with confirmation: LE Secure Connections + passkey, with the passkey shown in the web UI / log; pairing mode is enabled from the UI or with a short BOOT press, not always on.
+- Store bonds in NVS; list and remove paired devices in the web UI.
+- WiFi coexistence: BLE and WiFi share one radio, check the impact on tailnet latency. Possibly make BLE optional in `menuconfig` and disable it by default in the 4 MB no-OTA variant.
+- Estimate size: NimBLE is about 100–150 KB flash and ~40 KB RAM.
 
-Мобильное приложение:
+Mobile app:
 
-- Платформы: iOS и Android. Кандидаты: Flutter (`flutter_blue_plus`) или React Native (`react-native-ble-plx`), либо нативно SwiftUI + Kotlin.
-- Экраны: подключение/сопряжение, тачпад (движение, тапы, скролл двумя пальцами, перетаскивание), полноценная клавиатура с модификаторами и F-клавишами, мультимедиа, макросы (свои комбинации и строки).
-- Режимы связи: BLE рядом, а также WebSocket по tailnet (тот же протокол, что у браузера), чтобы приложение работало и издалека.
-- Минимальная задержка: отправка мыши пакетами с накоплением приращений, как в браузере.
-- Отдельный репозиторий или каталог `app/` — решить.
+- Platforms: iOS and Android. Candidates: Flutter (`flutter_blue_plus`) or React Native (`react-native-ble-plx`), or native SwiftUI + Kotlin.
+- Screens: connect/pair, touchpad (motion, taps, two-finger scroll, drag), a full keyboard with modifiers and F-keys, media keys, macros (custom combinations and strings).
+- Transports: BLE nearby, plus WebSocket over the tailnet (the same protocol as the browser) so the app also works remotely.
+- Minimal latency: send mouse motion as packets with accumulated deltas, as in the browser.
+- Separate repository or an `app/` directory: to decide.

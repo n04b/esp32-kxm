@@ -17,7 +17,7 @@ idf_component_register(
         app_update esp_app_format lwip mbedtls json driver esp_driver_gpio
 )
 
-# Веб-страница: сжимается при сборке и вшивается в прошивку.
+# Web page: compressed at build time and embedded in the firmware.
 idf_build_get_property(python PYTHON)
 set(WWW_SRC ${CMAKE_CURRENT_SOURCE_DIR}/www/index.html)
 set(WWW_GZ  ${CMAKE_CURRENT_BINARY_DIR}/index.html.gz)

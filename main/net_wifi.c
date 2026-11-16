@@ -37,7 +37,7 @@ static void schedule_retry(void)
 {
     esp_timer_stop(s_retry_timer);
     esp_timer_start_once(s_retry_timer, (uint64_t)s_retry_ms * 1000);
-    ESP_LOGI(TAG, "Повтор подключения через %lu мс", (unsigned long)s_retry_ms);
+    ESP_LOGI(TAG, "Reconnecting in %lu ms", (unsigned long)s_retry_ms);
     s_retry_ms *= 2;
     if (s_retry_ms > CONFIG_KVM_WIFI_RETRY_MAX_MS) s_retry_ms = CONFIG_KVM_WIFI_RETRY_MAX_MS;
 }
@@ -51,7 +51,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         wifi_event_sta_disconnected_t *d = data;
         xEventGroupClearBits(s_ev, BIT_CONNECTED);
         s_ip = 0;
-        ESP_LOGW(TAG, "WiFi отключён, причина %d", d->reason);
+        ESP_LOGW(TAG, "WiFi disconnected, reason %d", d->reason);
         schedule_retry();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data;
@@ -59,11 +59,11 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         s_retry_ms = 500;
         bool reconnect = s_had_ip;
         s_had_ip = true;
-        ESP_LOGI(TAG, "WiFi подключён, IP " IPSTR, IP2STR(&e->ip_info.ip));
+        ESP_LOGI(TAG, "WiFi connected, IP " IPSTR, IP2STR(&e->ip_info.ip));
         xEventGroupSetBits(s_ev, BIT_CONNECTED);
         if (s_ip_cb) s_ip_cb(reconnect);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
-        ESP_LOGI(TAG, "К точке настройки подключился клиент");
+        ESP_LOGI(TAG, "A client connected to the setup access point");
     }
 }
 
@@ -100,9 +100,9 @@ esp_err_t net_wifi_start_sta(const char *ssid, const char *pass)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_ERROR_CHECK(esp_wifi_start());
-    /* Modem Sleep выключен: иначе растёт задержка (как в esp32-kvm-ip). */
+    /* Modem Sleep is off, otherwise latency grows (as in esp32-kvm-ip). */
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    ESP_LOGI(TAG, "Подключение к \"%s\"...", ssid);
+    ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid);
     return ESP_OK;
 }
 
@@ -111,7 +111,7 @@ esp_err_t net_wifi_start_setup_ap(void)
     s_setup = true;
     common_init();
     esp_netif_create_default_wifi_ap();
-    s_sta = esp_netif_create_default_wifi_sta();   /* нужен для сканирования */
+    s_sta = esp_netif_create_default_wifi_sta();   /* needed for scanning */
 
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
@@ -131,10 +131,10 @@ esp_err_t net_wifi_start_setup_ap(void)
     ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGW(TAG, "══════════════════════════════════════════════");
-    ESP_LOGW(TAG, " Режим первичной настройки");
-    ESP_LOGW(TAG, " Сеть:   %s", s_ap_ssid);
-    ESP_LOGW(TAG, " Пароль: %s", CONFIG_KVM_SETUP_AP_PASSWORD);
-    ESP_LOGW(TAG, " Адрес:  http://192.168.4.1/");
+    ESP_LOGW(TAG, " Initial setup mode");
+    ESP_LOGW(TAG, " Network:  %s", s_ap_ssid);
+    ESP_LOGW(TAG, " Password: %s", CONFIG_KVM_SETUP_AP_PASSWORD);
+    ESP_LOGW(TAG, " Address:  http://192.168.4.1/");
     ESP_LOGW(TAG, "══════════════════════════════════════════════");
     return ESP_OK;
 }
