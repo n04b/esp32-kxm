@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Подключение ESP32-S3 KVM</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: two schematic sheets (SuperMini, N16R8 DevKitC), each with its connection table; flashing steps at the end. */
+:root{
+  --bg:#eef0f4; --sheet:#fbfcfe; --fg:#171b24; --mut:#5e6575; --line:#cdd2dc;
+  --pcb:#1c2b4a; --pcb-fg:#e8edf8; --pin:#c9a227; --pc:#3a3f4a; --usbc:#9aa1ad; --adapter:#7a2e3a;
+  --w-usb:#2563eb; --w-tx:#0d9488; --w-rx:#db2777; --w-gnd:#1f2937; --w-com:#9333ea;
+  --warn:#b45309; --warn-bg:#fdf3e2;
+  --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#10131a; --sheet:#161a23; --fg:#e5e8ef; --mut:#9399a8; --line:#2b313d;
+  --pcb:#24375e; --pc:#4a505c; --usbc:#7f8794; --adapter:#8f3a48;
+  --w-usb:#60a5fa; --w-tx:#2dd4bf; --w-rx:#f472b6; --w-gnd:#cbd5e1; --w-com:#c084fc;
+  --warn:#fbbf24; --warn-bg:#2b2412; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10131a; --sheet:#161a23; --fg:#e5e8ef; --mut:#9399a8; --line:#2b313d;
+  --pcb:#24375e; --pc:#4a505c; --usbc:#7f8794; --adapter:#8f3a48;
+  --w-usb:#60a5fa; --w-tx:#2dd4bf; --w-rx:#f472b6; --w-gnd:#cbd5e1; --w-com:#c084fc;
+  --warn:#fbbf24; --warn-bg:#2b2412; color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-block:24px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+h1{font-size:24px;margin:0;text-wrap:balance} h2{font-size:19px;margin:14px 0 0}
+.sub{color:var(--mut);margin:4px 0 0;max-width:72ch}
+.sheet{background:var(--sheet);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+svg{display:block;min-width:860px;width:100%;height:auto}
+svg text{font-family:var(--mono);fill:var(--fg)}
+.board{fill:var(--pcb)} .board-t{fill:var(--pcb-fg)!important;font-family:var(--sans)!important;font-weight:600}
+.pc{fill:var(--pc)} .adapter{fill:var(--adapter)} .usbc{fill:var(--usbc)} .pinpad{fill:var(--pin)}
+.lbl-in{fill:var(--pcb-fg)!important;font-size:13px}
+.note{fill:var(--mut)!important;font-size:12px}
+.w{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.w.cable{stroke-width:6}
+table{width:100%;border-collapse:collapse;font-size:14px;max-width:820px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);font-weight:600}
+td.m{font-family:var(--mono)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.warn{background:var(--warn-bg);border-left:3px solid var(--warn);padding:10px 14px;border-radius:6px}
+.warn ul,.steps{margin:6px 0 0;padding-left:20px}
+code{font-family:var(--mono);font-size:.92em}
+
+.w,.hit{cursor:pointer;transition:opacity .15s,stroke-width .15s}
+.hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke}
+svg.focus .w:not(.on){opacity:.12}
+svg.focus .w.on{stroke-width:5}
+svg.focus .w.cable.on{stroke-width:8}
+tr[data-net]{cursor:pointer}
+tr[data-net].on td{background:var(--line)}
+.hint{color:var(--mut);font-size:13px;margin:0}
+.netinfo{font-family:var(--mono);font-size:13px;min-height:1.5em}
+@media (prefers-reduced-motion:reduce){.w,.hit{transition:none}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Подключение ESP32-S3 KVM</h1>
+    <p class="sub">Плата втыкается в USB целевого ПК и становится его клавиатурой и мышью. Управление идёт по Wi-Fi через Tailscale, поэтому проводов почти нет: USB к ПК и, по желанию, USB-UART для логов.</p>
+  </header>
+
+  <h2>ESP32-S3 SuperMini</h2>
+  <p class="sub">Сборка с <code>sdkconfig.defaults.supermini</code>. Разъём USB-C платы — это нативный USB (GPIO19/20), он занят HID. Логи выводятся только на UART0: TX = GPIO43, RX = GPIO44, 115200.</p>
+  <p class="hint">Наведите или нажмите на провод или строку таблицы — соединение подсветится. Esc — сброс.</p>
+  <div class="sheet">
+    <svg viewBox="0 0 980 470" role="img" aria-label="ESP32-S3 SuperMini: USB к целевому ПК и USB-UART адаптер для логов">
+      <!-- target PC -->
+      <rect class="pc" x="40" y="60" width="210" height="150" rx="10"/>
+      <text class="board-t" x="70" y="96" font-size="15">Целевой ПК</text>
+      <text class="lbl-in" x="70" y="118" opacity=".8" font-size="12">клавиатура + мышь</text>
+      <rect class="usbc" x="246" y="124" width="20" height="26" rx="3"/>
+      <text class="lbl-in" x="70" y="190" font-size="12">USB-A / USB-C</text>
+
+      <!-- SuperMini -->
+      <rect class="board" x="440" y="60" width="200" height="260" rx="10"/>
+      <rect class="usbc" x="430" y="124" width="22" height="26" rx="3"/>
+      <text class="board-t" x="470" y="96" font-size="15">ESP32-S3</text>
+      <text class="board-t" x="470" y="114" font-size="15">SuperMini</text>
+      <text class="lbl-in" x="470" y="142" font-size="11" opacity=".8">USB-C: HID + питание</text>
+      <circle cx="600" cy="181" r="9" fill="#e5e7eb" stroke="#94a3b8"/><text class="lbl-in" x="600" y="212" font-size="10" text-anchor="middle">LED 48</text>
+      <rect x="470" y="170" width="44" height="22" rx="4" fill="#cbd5e1"/><text x="492" y="186" text-anchor="middle" font-size="11" style="fill:#1f2937">BOOT</text>
+      <rect x="530" y="170" width="44" height="22" rx="4" fill="#cbd5e1"/><text x="552" y="186" text-anchor="middle" font-size="11" style="fill:#1f2937">RST</text>
+      <text class="lbl-in" x="470" y="212" font-size="11" opacity=".8">BOOT = GPIO0</text>
+      <g text-anchor="end"><text class="lbl-in" x="622" y="250">GPIO43 TX</text><text class="lbl-in" x="622" y="276">GPIO44 RX</text><text class="lbl-in" x="622" y="302">GND</text></g>
+      <g class="pinpad"><rect x="634" y="240" width="12" height="12"/><rect x="634" y="266" width="12" height="12"/><rect x="634" y="292" width="12" height="12"/></g>
+
+      <!-- USB-UART adapter -->
+      <rect class="adapter" x="760" y="200" width="200" height="130" rx="8"/>
+      <text class="board-t" x="830" y="226" font-size="15">USB-UART</text>
+      <text class="lbl-in" x="830" y="318" font-size="10" opacity=".8">CH340/CP2102</text>
+      <g><text class="lbl-in" x="776" y="250">RX</text><text class="lbl-in" x="776" y="276">TX</text><text class="lbl-in" x="776" y="302">GND</text></g>
+      <g class="pinpad"><rect x="754" y="240" width="12" height="12"/><rect x="754" y="266" width="12" height="12"/><rect x="754" y="292" width="12" height="12"/></g>
+      <text class="note" x="760" y="352">USB → Mac/ПК для логов</text>
+      <text class="note" x="760" y="370">5V/3V3 адаптера не подключать</text>
+
+      <!-- wires -->
+      <path class="w cable" data-net="usb" style="stroke:var(--w-usb)" d="M266 137 H430"/>
+      <path class="w" data-net="tx" style="stroke:var(--w-tx)" d="M646 246 H754"/>
+      <path class="w" data-net="rx" style="stroke:var(--w-rx)" d="M646 272 H754"/>
+      <path class="w" data-net="gnd" style="stroke:var(--w-gnd)" d="M646 298 H754"/>
+      <text class="note" x="300" y="166">USB-C, данные</text>
+      <text class="note" x="660" y="236">TX→RX</text>
+      <text class="note" x="40" y="420">Сеть — по Wi-Fi, проводов не нужно. Питание платы — от USB целевого ПК.</text>
+    </svg>
+  </div>
+  <div class="netinfo" aria-live="polite"></div>
+  <table>
+    <thead><tr><th>Откуда</th><th>Куда</th><th>Зачем</th></tr></thead>
+    <tbody>
+      <tr data-net="usb"><td class="m"><span class="sw" style="background:var(--w-usb)"></span>USB-C SuperMini</td><td class="m">USB целевого ПК</td><td>клавиатура и мышь, питание платы</td></tr>
+      <tr data-net="tx"><td class="m"><span class="sw" style="background:var(--w-tx)"></span>GPIO43 (TX)</td><td class="m">RX адаптера</td><td>логи, необязательно</td></tr>
+      <tr data-net="rx"><td class="m"><span class="sw" style="background:var(--w-rx)"></span>GPIO44 (RX)</td><td class="m">TX адаптера</td><td>ввод в консоль, необязательно</td></tr>
+      <tr data-net="gnd"><td class="m"><span class="sw" style="background:var(--w-gnd)"></span>GND</td><td class="m">GND адаптера</td><td>общая земля, нужна вместе с TX/RX</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ESP32-S3 N16R8 (DevKitC-1)</h2>
+  <p class="sub">Сборка с <code>sdkconfig.defaults.n16r8</code>. У платы два разъёма: <b>USB</b> (нативный) идёт к целевому ПК, <b>COM</b> (UART через мост на плате) — к Mac для логов. Отдельный адаптер не нужен.</p>
+  <p class="hint">Наведите или нажмите на провод или строку таблицы — соединение подсветится. Esc — сброс.</p>
+  <div class="sheet">
+    <svg viewBox="0 0 980 340" role="img" aria-label="ESP32-S3 N16R8 DevKitC: порт USB к целевому ПК, порт COM к компьютеру для логов">
+      <rect class="pc" x="40" y="60" width="210" height="150" rx="10"/>
+      <text class="board-t" x="70" y="96" font-size="15">Целевой ПК</text>
+      <text class="lbl-in" x="70" y="118" opacity=".8" font-size="12">клавиатура + мышь</text>
+      <rect class="usbc" x="246" y="124" width="20" height="26" rx="3"/>
+
+      <rect class="board" x="430" y="40" width="200" height="260" rx="10"/>
+      <rect class="usbc" x="420" y="124" width="22" height="26" rx="3"/>
+      <rect class="usbc" x="618" y="124" width="22" height="26" rx="3"/>
+      <text class="board-t" x="458" y="76" font-size="15">ESP32-S3</text>
+      <text class="board-t" x="458" y="94" font-size="15">DevKitC N16R8</text>
+      <text class="lbl-in" x="452" y="141" font-size="12">USB</text>
+      <text class="lbl-in" x="608" y="141" font-size="12" text-anchor="end">COM</text>
+      <circle cx="530" cy="200" r="9" fill="#e5e7eb" stroke="#94a3b8"/><text class="lbl-in" x="546" y="204" font-size="10">LED 48*</text>
+      <rect x="458" y="240" width="44" height="22" rx="4" fill="#cbd5e1"/><text x="480" y="256" text-anchor="middle" font-size="11" style="fill:#1f2937">BOOT</text>
+      <rect x="518" y="240" width="44" height="22" rx="4" fill="#cbd5e1"/><text x="540" y="256" text-anchor="middle" font-size="11" style="fill:#1f2937">RST</text>
+
+      <rect class="pc" x="760" y="80" width="190" height="110" rx="10"/>
+      <text class="board-t" x="790" y="116" font-size="15">Mac / ПК</text>
+      <text class="lbl-in" x="790" y="136" font-size="12" opacity=".8">монитор логов</text>
+      <rect class="usbc" x="750" y="124" width="20" height="26" rx="3"/>
+
+      <path class="w cable" data-net="usb" style="stroke:var(--w-usb)" d="M266 137 H420"/>
+      <path class="w cable" data-net="com" style="stroke:var(--w-com)" d="M640 137 H750"/>
+      <text class="note" x="290" y="166">USB: HID + питание</text>
+      <text class="note" x="644" y="166">COM: логи</text>
+      <text class="note" x="430" y="324">* на ревизии DevKitC-1 v1.1 светодиод на GPIO38 — поменяйте в menuconfig</text>
+    </svg>
+  </div>
+  <div class="netinfo" aria-live="polite"></div>
+  <table>
+    <thead><tr><th>Разъём платы</th><th>Куда</th><th>Зачем</th></tr></thead>
+    <tbody>
+      <tr data-net="usb"><td class="m"><span class="sw" style="background:var(--w-usb)"></span>USB</td><td class="m">USB целевого ПК</td><td>клавиатура и мышь, питание</td></tr>
+      <tr data-net="com"><td class="m"><span class="sw" style="background:var(--w-com)"></span>COM</td><td class="m">Mac / ПК</td><td>логи и прошивка, необязательно</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Прошивка по кабелю</h2>
+  <ol class="steps">
+    <li>SuperMini: зажмите <b>BOOT</b>, подключите USB-C к Mac, отпустите BOOT. N16R8: можно прошивать через разъём <b>COM</b> без кнопок.</li>
+    <li><code>idf.py -B build -p /dev/cu.usbmodemXXXX flash</code> (порт смотрите в <code>ls /dev/cu.*</code>).</li>
+    <li>Нажмите RST или переподключите кабель, затем подключите плату к целевому ПК.</li>
+  </ol>
+
+  <div class="warn">
+    <strong>Важно</strong>
+    <ul>
+      <li>Кабель USB должен передавать данные, а не только питание.</li>
+      <li>У USB-UART адаптера подключайте только TX, RX и GND: плата уже питается от USB целевого ПК.</li>
+      <li>Удержание BOOT 5 секунд в рабочем режиме стирает настройки и ключи Tailscale.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function(){
+  const NAMES={usb:'USB (HID + питание)',tx:'UART TX',rx:'UART RX',gnd:'GND',com:'COM (логи)'};
+  let pinned=null;
+  function show(net){
+    document.querySelectorAll('svg').forEach(s=>s.classList.toggle('focus',!!net));
+    document.querySelectorAll('[data-net]').forEach(e=>e.classList.toggle('on',!!net&&e.dataset.net===net));
+    document.querySelectorAll('.netinfo').forEach(i=>{
+      if(!net){i.textContent='';return}
+      const rows=[...document.querySelectorAll('tr[data-net="'+net+'"]')].map(r=>[...r.cells].slice(0,2).map(c=>c.textContent.trim()).join(' → '));
+      i.textContent=(NAMES[net]||net)+(rows.length?':  '+rows.join(',  '):'');
+    });
+  }
+  document.querySelectorAll('path.w[data-net]').forEach(p=>{
+    const h=p.cloneNode();h.setAttribute('class','hit');h.removeAttribute('style');
+    p.parentNode.insertBefore(h,p.nextSibling);
+  });
+  document.addEventListener('mouseover',e=>{const t=e.target.closest('[data-net]');if(!pinned)show(t?t.dataset.net:null)});
+  document.addEventListener('click',e=>{const t=e.target.closest('[data-net]');
+    if(!t){pinned=null;show(null);return}
+    pinned=(pinned===t.dataset.net)?null:t.dataset.net;show(pinned)});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){pinned=null;show(null)}});
+})();
+</script>
+</body>
+</html>
