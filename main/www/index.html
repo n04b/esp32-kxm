@@ -226,7 +226,7 @@ async function api(p,body,raw){
  const o=body===undefined?{}:{method:'POST',headers:raw?{}:{'Content-Type':'application/json'},body:raw?body:JSON.stringify(body)};
  const r=await fetch(p,o);let j={};try{j=await r.json()}catch(e){}
  if(r.status==401&&p!='/api/login'){view('login');throw new Error('Sign-in required');}
- if(!r.ok)throw new Error(j.error||('Error '+r.status));return j;
+ if(!r.ok){const e=new Error(j.error||('Error '+r.status));e.wait=j.retry_after||0;throw e}return j;
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';')}
 function kv(id,rows){$(id).innerHTML=rows.map(r=>'<b>'+r[0]+'</b><span>'+r[1]+'</span>').join('')}
@@ -240,10 +240,19 @@ async function boot(){
  $('ver').textContent=state.version||'';
  show($('ota-card'),!!state.ota);
  if(state.mode=='setup'){view('setup');return;}
- if(!state.authed){view('login');return;}
+ if(!state.authed){view('login');if(state.login_wait)lockout(state.login_wait,'lb','lm');return;}
  view('app');selTab(tab);
 }
-$('lb').onclick=async()=>{try{await api('/api/login',{password:$('lp').value});$('lp').value='';msg('lm');boot();}catch(e){msg('lm',e.message)}};
+/* Login lockout: disable the button and count down until passwords are accepted again. */
+const lockT={};
+function lockout(s,bid,mid){
+ const b=$(bid),end=Date.now()+s*1000;clearInterval(lockT[bid]);b.disabled=true;
+ const tick=()=>{const l=Math.ceil((end-Date.now())/1000);
+  if(l<=0){clearInterval(lockT[bid]);b.disabled=false;msg(mid,'You can try again now',1);return}
+  msg(mid,'Too many wrong passwords. Try again in '+Math.floor(l/60)+':'+String(l%60).padStart(2,'0'))};
+ tick();lockT[bid]=setInterval(tick,1000);
+}
+$('lb').onclick=async()=>{try{await api('/api/login',{password:$('lp').value});$('lp').value='';msg('lm');boot();}catch(e){$('lp').value='';if(e.wait)lockout(e.wait,'lb','lm');else msg('lm',e.message)}};
 $('lp').onkeydown=e=>{if(e.key=='Enter')$('lb').click()};
 
 /* ── Tabs ── */
@@ -323,7 +332,7 @@ async function loadPeers(){
 $('peers').onclick=async e=>{const ip=e.target.dataset.allow;if(!ip)return;
  try{const c=await api('/api/config');c.allow.push({ip,label:e.target.dataset.lb||''});await api('/api/config',{allow:c.allow});loadPeers();}catch(er){msg('ts-msg',er.message)}};
 $('y-save').onclick=()=>save({web_lan:$('y-lan').checked,web_ts:$('y-ts').checked},'y-msg');
-$('p-save').onclick=async()=>{try{await api('/api/password',{old:$('p-old').value,new:$('p-new').value});$('p-old').value=$('p-new').value='';msg('p-msg','Password changed, sign in again',1);setTimeout(boot,1500)}catch(e){msg('p-msg',e.message)}};
+$('p-save').onclick=async()=>{try{await api('/api/password',{old:$('p-old').value,new:$('p-new').value});$('p-old').value=$('p-new').value='';msg('p-msg','Password changed, sign in again',1);setTimeout(boot,1500)}catch(e){if(e.wait)lockout(e.wait,'p-save','p-msg');else msg('p-msg',e.message)}};
 $('y-reboot').onclick=()=>{if(confirm('Reboot the device?'))reboot('y-msg')};
 $('y-logout').onclick=async()=>{await api('/api/logout',{}).catch(()=>{});boot()};
 $('y-reset').onclick=async()=>{if(!confirm('Erase all settings and keys? The device will enter initial setup mode (access point kvm-setup-…).'))return;try{await api('/api/factory_reset',{});alert('Settings erased. Connect to the kvm-setup-… network and open 192.168.4.1')}catch(e){alert(e.message)}};

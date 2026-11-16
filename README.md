@@ -68,6 +68,7 @@ For a board with a plain LED: `menuconfig` → ESP32 KVM → Board, disable WS28
 | `ts_client.c` | MicroLink: registration, WireGuard, DISCO, DERP | 0 |
 | `web_ui.c` | HTTP, REST, WebSocket, sessions, OTA | 0 |
 | `app_config.c` | Settings in NVS, password stored as PBKDF2-SHA256 | — |
+| `login_guard.c` | Failed-login lockout (1 min → 5 min → 15 min → 1 h), state kept in NVS | 0 |
 | `status.c` | LED and BOOT button | 0 |
 
 MicroLink lives in `components/microlink` (MIT, commit in `UPSTREAM_COMMIT`). Differences from upstream:
@@ -84,6 +85,7 @@ The esp32-kvm-ip UDP protocol is unchanged: 16 bytes, `magic 0xCAFE`, a 32-bit `
 - **Mouse motion.** Mouse packets carry deltas, not state, so instead of a length-1 overwrite queue the firmware accumulates deltas until the next USB poll. No motion is lost.
 - **Link watchdog.** Separate timeouts for the browser and for UDP, 200 ms by default. While anything is held, the browser repeats the state every 50 ms. The esp32-kvm-ip server only sends packets on changes, so with a 200 ms UDP watchdog a key held longer than that without other input will be released. If that is a problem, set the UDP watchdog to 0 in the KVM section.
 - **Allowlist** applies to UDP (tailnet and LAN). The browser is protected by the UI password and is not restricted by the list.
+- **Password lockout.** Every 5 consecutive wrong passwords (at login or password change) lock password checks for 1 min, then 5 min, 15 min and 1 h. The counter is global and stored in NVS, so a reboot restarts the current lockout instead of clearing it. A correct password resets it; so does the BOOT factory reset.
 - **BIOS/UEFI.** The keyboard is a separate boot-protocol interface. The mouse also understands the boot protocol (3 bytes), but is not guaranteed to work in BIOS.
 
 ## Tested and untested

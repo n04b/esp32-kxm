@@ -9,6 +9,7 @@ idf_component_register(
         "ts_client.c"
         "usb_hid.c"
         "web_ui.c"
+        "login_guard.c"
     INCLUDE_DIRS "."
     REQUIRES
         microlink

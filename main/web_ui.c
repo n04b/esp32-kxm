@@ -5,6 +5,7 @@
 #include "net_wifi.h"
 #include "ts_client.h"
 #include "usb_hid.h"
+#include "login_guard.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -37,8 +38,6 @@ static bool s_setup;
 #define SESSION_TTL_US (24LL * 3600 * 1000000)
 typedef struct { char token[33]; int64_t expires; } session_t;
 static session_t s_sessions[MAX_SESSIONS];
-static int64_t s_login_block_until;
-static int s_login_fails;
 
 /* ── WebSocket ──────────────────────────────────────────────────── */
 
@@ -205,6 +204,32 @@ static bool is_authed(httpd_req_t *req)
 
 #define REQUIRE_AUTH(req) do { if (!is_authed(req)) return send_err(req, "401 Unauthorized", "auth"); } while (0)
 
+/* 429 with the lockout length: in Retry-After and as "retry_after" in the JSON. */
+static esp_err_t send_locked(httpd_req_t *req, uint32_t secs)
+{
+    char hdr[12], buf[120];
+    snprintf(hdr, sizeof(hdr), "%lu", (unsigned long)secs);
+    httpd_resp_set_status(req, "429 Too Many Requests");
+    httpd_resp_set_hdr(req, "Retry-After", hdr);
+    snprintf(buf, sizeof(buf),
+             "{\"error\":\"Too many wrong passwords, try again in %lu s\",\"retry_after\":%lu}",
+             (unsigned long)secs, (unsigned long)secs);
+    return send_json(req, buf);
+}
+
+/* Wrong password: count it, slow the client down, and answer 403 or 429. */
+static esp_err_t reject_password(httpd_req_t *req, const char *what)
+{
+    uint32_t locked = login_guard_fail(sock_ip(httpd_req_to_sockfd(req), false));
+    vTaskDelay(pdMS_TO_TICKS(500));
+    if (locked) return send_locked(req, locked);
+    char msg[100];
+    uint32_t left = login_guard_attempts_left();
+    snprintf(msg, sizeof(msg), "%s, %lu attempt%s left before lockout",
+             what, (unsigned long)left, left == 1 ? "" : "s");
+    return send_err(req, "403 Forbidden", msg);
+}
+
 static void new_session(char out[33])
 {
     uint8_t rnd[16];
@@ -234,36 +259,30 @@ static esp_err_t h_index(httpd_req_t *req)
 
 static esp_err_t h_state(httpd_req_t *req)
 {
-    char buf[200];
-    snprintf(buf, sizeof(buf), "{\"mode\":\"%s\",\"authed\":%s,\"version\":\"%s\",\"ota\":%s}",
+    char buf[220];
+    snprintf(buf, sizeof(buf), "{\"mode\":\"%s\",\"authed\":%s,\"version\":\"%s\",\"ota\":%s,\"login_wait\":%lu}",
              s_setup ? "setup" : "run", is_authed(req) ? "true" : "false",
              esp_app_get_description()->version,
 #if CONFIG_KVM_ENABLE_OTA
-             "true"
+             "true",
 #else
-             "false"
+             "false",
 #endif
+             (unsigned long)(s_setup ? 0 : login_guard_wait_s())
     );
     return send_json(req, buf);
 }
 
 static esp_err_t h_login(httpd_req_t *req)
 {
-    int64_t now = esp_timer_get_time();
-    if (now < s_login_block_until) return send_err(req, "429 Too Many Requests", "Too many attempts, wait a minute");
+    uint32_t wait = login_guard_wait_s();
+    if (wait) return send_locked(req, wait);
     cJSON *j = read_json(req);
     const char *pw = j ? jstr(j, "password") : NULL;
     bool ok = pw && config_check_password(pw);
     if (j) cJSON_Delete(j);
-    if (!ok) {
-        if (++s_login_fails >= 5) {
-            s_login_block_until = now + 60LL * 1000000;
-            s_login_fails = 0;
-        }
-        vTaskDelay(pdMS_TO_TICKS(500));
-        return send_err(req, "403 Forbidden", "Wrong password");
-    }
-    s_login_fails = 0;
+    if (!ok) return reject_password(req, "Wrong password");
+    login_guard_success();
     char tok[33], cookie[100];
     new_session(tok);
     snprintf(cookie, sizeof(cookie), "kvm_sid=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400", tok);
@@ -546,13 +565,16 @@ static esp_err_t h_setup(httpd_req_t *req)
 static esp_err_t h_password(httpd_req_t *req)
 {
     REQUIRE_AUTH(req);
+    uint32_t wait = login_guard_wait_s();
+    if (wait) return send_locked(req, wait);
     cJSON *j = read_json(req);
     if (!j) return send_err(req, "400 Bad Request", "Invalid JSON");
     const char *old = jstr(j, "old"), *nw = jstr(j, "new");
     esp_err_t r;
     if (!old || !config_check_password(old)) {
-        r = send_err(req, "403 Forbidden", "Current password is wrong");
+        r = reject_password(req, "Current password is wrong");
     } else {
+        login_guard_success();
         kvm_settings_t c;
         config_get(&c);
         if (!nw || config_hash_password(nw, &c) != ESP_OK) {
@@ -732,6 +754,7 @@ static esp_err_t h_ws(httpd_req_t *req)
 esp_err_t web_ui_start(bool setup_mode)
 {
     s_setup = setup_mode;
+    login_guard_init();
     kvm_settings_t c;
     config_get(&c);
     apply_runtime(&c);
