@@ -1,0 +1,85 @@
+menu "ESP32 KVM"
+
+    config KVM_ENABLE_OTA
+        bool "Обновление прошивки через веб-интерфейс (OTA)"
+        default y
+        help
+            Требует таблицу разделов с двумя слотами ota_0/ota_1.
+            Если прошивка не помещается в 1920 КБ, выключите и
+            используйте partitions_4mb_noota.csv.
+
+    menu "Сеть"
+        config KVM_UDP_PORT
+            int "UDP-порт приёма ввода по умолчанию"
+            range 1 65535
+            default 4210
+
+        config KVM_DEFAULT_HOSTNAME
+            string "Имя устройства в tailnet по умолчанию"
+            default "esp-kvm"
+
+        config KVM_TS_MAX_PEERS
+            int "Максимум активных WireGuard-пиров"
+            range 1 16
+            default 4
+
+        config KVM_SETUP_AP_PASSWORD
+            string "Пароль точки доступа первичной настройки (WPA2, ≥8 символов)"
+            default "kvmsetup"
+
+        config KVM_WIFI_RETRY_MAX_MS
+            int "Максимальная пауза между попытками переподключения WiFi, мс"
+            default 10000
+    endmenu
+
+    menu "KVM"
+        config KVM_WATCHDOG_MS
+            int "Сторож связи по умолчанию, мс"
+            range 50 5000
+            default 200
+
+        config KVM_UDP_HZ_DEFAULT
+            int "Номинальная частота пакетов, Гц (для справки в интерфейсе)"
+            range 60 1000
+            default 125
+    endmenu
+
+    menu "Плата"
+        config KVM_BOOT_BUTTON_GPIO
+            int "GPIO кнопки BOOT"
+            default 0
+
+        config KVM_FACTORY_RESET_HOLD_MS
+            int "Удержание BOOT для сброса настроек, мс"
+            default 5000
+
+        config KVM_LED_GPIO
+            int "GPIO светодиода состояния (-1 = нет)"
+            default 48
+
+        config KVM_LED_WS2812
+            bool "Светодиод — адресный WS2812 (RGB)"
+            default y
+
+        config KVM_LED_ACTIVE_LOW
+            bool "Обычный светодиод горит при низком уровне"
+            depends on !KVM_LED_WS2812
+            default n
+    endmenu
+
+    menu "USB-дескриптор"
+        config KVM_USB_VID
+            hex "Vendor ID"
+            default 0x303A
+        config KVM_USB_PID
+            hex "Product ID"
+            default 0x4002
+        config KVM_USB_MANUFACTURER
+            string "Производитель"
+            default "ESP32"
+        config KVM_USB_PRODUCT
+            string "Продукт"
+            default "KVM Keyboard/Mouse"
+    endmenu
+
+endmenu

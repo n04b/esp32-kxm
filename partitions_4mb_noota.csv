@@ -1,0 +1,5 @@
+# ESP32-S3 SuperMini (4 МБ flash), вариант без OTA (запасной)
+# Name,    Type, SubType, Offset,   Size
+nvs,       data, nvs,     0x9000,   24K
+phy_init,  data, phy,     0x11000,  4K
+factory,   app,  factory, 0x20000,  3968K

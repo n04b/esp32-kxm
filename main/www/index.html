@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ESP32 KVM</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--fg:#1d2026;--mut:#6b7280;--line:#e3e5e9;--acc:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--pad:#eef0f4}
+@media(prefers-color-scheme:dark){:root{--bg:#111318;--card:#1b1e24;--fg:#e8eaee;--mut:#9aa1ad;--line:#2b2f37;--acc:#4f8bff;--pad:#23272f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:12px 16px 40px}
+h1{font-size:20px;margin:8px 0 12px}
+h2{font-size:17px;margin:0 0 10px}
+nav{display:flex;gap:6px;overflow-x:auto;margin:0 -16px 12px;padding:0 16px}
+nav button{flex:none;background:var(--card);border:1px solid var(--line);color:var(--fg);padding:9px 14px;border-radius:20px;font-size:15px}
+nav button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:14px;color:var(--mut);margin:10px 0 4px}
+input,select,textarea{width:100%;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--fg)}
+textarea{min-height:80px;resize:vertical}
+.chk{display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--fg);font-size:16px}
+.chk input{width:22px;height:22px;flex:none}
+button.b{font:inherit;padding:11px 16px;border-radius:9px;border:0;background:var(--acc);color:#fff;margin:10px 8px 0 0;min-height:44px}
+button.s{background:var(--pad);color:var(--fg);border:1px solid var(--line)}
+button.d{background:var(--bad)}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:15px}
+.kv b{font-weight:500;color:var(--mut)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--mut)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.msg{margin-top:10px;font-size:14px;min-height:1em}
+.msg.e{color:var(--bad)}.msg.o{color:var(--ok)}
+.hide{display:none!important}
+.mut{color:var(--mut);font-size:14px}
+.list>div{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.list>div:last-child{border:0}
+.list .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.list button{margin:0;padding:8px 12px;min-height:36px}
+#cap{height:220px;border:2px dashed var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;color:var(--mut);user-select:none;outline:none;background:var(--pad)}
+#cap.act{border-color:var(--acc);color:var(--fg)}
+#pad{height:260px;border-radius:12px;background:var(--pad);border:1px solid var(--line);touch-action:none;display:flex;align-items:center;justify-content:center;color:var(--mut);user-select:none}
+.keys{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:10px}
+.keys button{margin:0;font-size:14px;padding:10px 4px;overflow-wrap:anywhere}
+.keys button.on{background:var(--acc);color:#fff}
+.leds{display:flex;gap:14px;font-size:14px;margin:6px 0 2px}
+.leds span{opacity:.35}.leds span.on{opacity:1;color:var(--ok);font-weight:600}
+.bar{height:8px;background:var(--pad);border-radius:4px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;width:0;background:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>ESP32 KVM <span id="ver" class="mut"></span></h1>
+
+<!-- Вход -->
+<section id="v-login" class="hide">
+ <div class="card">
+  <h2>Вход</h2>
+  <label for="lp">Пароль интерфейса</label>
+  <input id="lp" type="password" autocomplete="current-password">
+  <button class="b" id="lb">Войти</button>
+  <div class="msg" id="lm"></div>
+ </div>
+</section>
+
+<!-- Первичная настройка -->
+<section id="v-setup" class="hide">
+ <div class="card">
+  <h2>Первичная настройка</h2>
+  <p class="mut">Задайте WiFi, ключ Tailscale и пароль интерфейса. После сохранения плата перезагрузится в рабочий режим, точка настройки выключится.</p>
+  <label>WiFi-сеть</label>
+  <div class="row"><select id="s-list"><option value="">— выберите или введите ниже —</option></select><button class="b s" style="flex:none;margin:0" data-scan="s-list">Найти</button></div>
+  <input id="s-ssid" placeholder="Имя сети" style="margin-top:8px">
+  <label>Пароль WiFi</label><input id="s-wpass" type="password" autocomplete="off">
+  <label>Auth-ключ Tailscale</label><input id="s-key" placeholder="tskey-auth-…" autocomplete="off">
+  <label>Control-сервер (пусто — официальный Tailscale)</label><input id="s-ctrl" placeholder="controlplane.tailscale.com">
+  <label>Имя устройства в tailnet</label><input id="s-host" value="esp-kvm">
+  <label>Tailnet-адрес управляющего ПК или телефона (можно добавить позже)</label><input id="s-allow" placeholder="100.x.y.z">
+  <label>Пароль интерфейса (не короче 6 символов)</label><input id="s-pw1" type="password" autocomplete="new-password">
+  <label>Повторите пароль</label><input id="s-pw2" type="password" autocomplete="new-password">
+  <button class="b" id="s-save">Сохранить и перезагрузить</button>
+  <div class="msg" id="s-msg"></div>
+ </div>
+</section>
+
+<!-- Рабочий режим -->
+<section id="v-app" class="hide">
+<nav id="nav">
+ <button data-t="status" class="on">Статус</button>
+ <button data-t="ctl">Управление</button>
+ <button data-t="wifi">WiFi</button>
+ <button data-t="ts">Tailscale</button>
+ <button data-t="kvm">KVM</button>
+ <button data-t="sys">Система</button>
+</nav>
+
+<div id="t-status">
+ <div class="card"><h2>Подключения</h2><div class="kv" id="st-net"></div></div>
+ <div class="card"><h2>Ввод</h2><div class="kv" id="st-kvm"></div></div>
+ <div class="card"><h2>Память и время работы</h2><div class="kv" id="st-mem"></div></div>
+</div>
+
+<div id="t-ctl" class="hide">
+ <div class="card">
+  <div class="row" style="justify-content:space-between"><h2 style="margin:0">Управление</h2><span class="mut" id="c-state">нет связи</span></div>
+  <div class="leds"><span id="led-n">Num</span><span id="led-c">Caps</span><span id="led-s">Scroll</span></div>
+  <div id="c-busy" class="hide"><p class="msg e" id="c-busy-t">Управление занято другим браузером.</p><button class="b s" id="c-take">Перехватить управление</button></div>
+  <div id="c-desk">
+   <div id="cap" tabindex="0">Нажмите, чтобы захватить мышь и клавиатуру.<br>Esc — выход из захвата.</div>
+   <button class="b s" id="c-fs">Полный экран (Keyboard Lock)</button>
+  </div>
+  <div id="c-touch">
+   <label>Тачпад: одно касание — клик, два пальца — правый клик и прокрутка</label>
+   <div id="pad">Тачпад</div>
+   <div class="row" style="margin-top:8px"><button class="b s" style="margin:0" data-mb="1">Левая</button><button class="b s" style="margin:0" data-mb="4">Средняя</button><button class="b s" style="margin:0" data-mb="2">Правая</button></div>
+   <label for="mk">Ввод с экранной клавиатуры</label>
+   <input id="mk" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Нажмите и печатайте">
+  </div>
+ </div>
+ <div class="card">
+  <h2>Сочетания</h2>
+  <div class="keys" id="combos"></div>
+  <label>Залипающие модификаторы</label>
+  <div class="keys" id="sticky"></div>
+ </div>
+ <div class="card">
+  <h2>Вставка текста</h2>
+  <textarea id="pt" placeholder="Текст будет набран на целевом ПК нажатиями клавиш"></textarea>
+  <label>Раскладка на целевом ПК для кириллицы</label>
+  <select id="pl"><option value="us">Только латиница (US)</option><option value="ru">Русская ЙЦУКЕН</option></select>
+  <button class="b" id="pgo">Набрать</button><button class="b s" id="pstop">Стоп</button>
+  <div class="msg" id="pm"></div>
+ </div>
+</div>
+
+<div id="t-wifi" class="hide">
+ <div class="card">
+  <h2>WiFi</h2>
+  <div class="row"><select id="w-list"><option value="">— найденные сети —</option></select><button class="b s" style="flex:none;margin:0" data-scan="w-list">Найти</button></div>
+  <label>Имя сети</label><input id="w-ssid">
+  <label>Пароль</label><input id="w-pass" type="password" autocomplete="off" placeholder="не менять">
+  <label class="chk"><input type="checkbox" id="w-open">Открытая сеть без пароля</label>
+  <button class="b" id="w-save">Сохранить</button>
+  <div class="msg" id="w-msg"></div>
+ </div>
+</div>
+
+<div id="t-ts" class="hide">
+ <div class="card">
+  <h2>Tailscale</h2>
+  <div class="msg e" id="ts-err"></div>
+  <label>Auth-ключ</label><input id="ts-key" autocomplete="off" placeholder="не менять">
+  <label>Control-сервер (пусто — официальный Tailscale)</label><input id="ts-ctrl">
+  <label>Имя устройства</label><input id="ts-host">
+  <button class="b" id="ts-save">Сохранить</button>
+  <button class="b s" id="ts-rereg">Перерегистрация</button>
+  <div class="msg" id="ts-msg"></div>
+ </div>
+ <div class="card">
+  <h2>Пиры</h2>
+  <div class="list" id="peers"><span class="mut">Загрузка…</span></div>
+ </div>
+</div>
+
+<div id="t-kvm" class="hide">
+ <div class="card">
+  <h2>Приём ввода</h2>
+  <label>UDP-порт</label><input id="k-port" type="number" min="1" max="65535">
+  <label>Сторож связи для браузера, мс</label><input id="k-wd" type="number" min="50" max="5000">
+  <label>Сторож связи для UDP, мс (0 — выкл.)</label><input id="k-uwd" type="number" min="0" max="5000">
+  <p class="mut">Сервер esp32-kvm-ip шлёт пакеты только при изменениях. Со сторожем UDP клавиша, которую держат дольше таймаута без другого ввода, будет отпущена.</p>
+  <label class="chk"><input type="checkbox" id="k-lan">Принимать UDP из локальной сети (без шифрования)</label>
+ </div>
+ <div class="card">
+  <h2>Разрешённые отправители</h2>
+  <p class="mut">UDP-пакеты принимаются только с этих адресов. Пустой список — ввод по UDP не принимается ни от кого. Первый tailnet-адрес получает гарантированный слот WireGuard.</p>
+  <div class="list" id="allow"></div>
+  <div class="row" style="margin-top:8px"><input id="a-ip" placeholder="100.x.y.z"><input id="a-lb" placeholder="Подпись"></div>
+  <button class="b s" id="a-add">Добавить</button>
+  <br><button class="b" id="k-save">Сохранить</button>
+  <div class="msg" id="k-msg"></div>
+ </div>
+</div>
+
+<div id="t-sys" class="hide">
+ <div class="card">
+  <h2>Доступ к интерфейсу</h2>
+  <label class="chk"><input type="checkbox" id="y-lan">По локальному адресу</label>
+  <label class="chk"><input type="checkbox" id="y-ts">По tailnet-адресу</label>
+  <button class="b" id="y-save">Сохранить</button>
+  <div class="msg" id="y-msg"></div>
+ </div>
+ <div class="card">
+  <h2>Пароль</h2>
+  <label>Текущий</label><input id="p-old" type="password" autocomplete="current-password">
+  <label>Новый</label><input id="p-new" type="password" autocomplete="new-password">
+  <button class="b" id="p-save">Сменить пароль</button>
+  <div class="msg" id="p-msg"></div>
+ </div>
+ <div class="card" id="ota-card">
+  <h2>Обновление прошивки</h2>
+  <input type="file" id="o-file" accept=".bin">
+  <button class="b" id="o-go">Загрузить</button>
+  <div class="bar"><i id="o-bar"></i></div>
+  <div class="msg" id="o-msg"></div>
+ </div>
+ <div class="card">
+  <h2>Устройство</h2>
+  <div class="kv" id="y-info"></div>
+  <button class="b s" id="y-reboot">Перезагрузить</button>
+  <button class="b s" id="y-logout">Выйти</button>
+  <button class="b d" id="y-reset">Сброс настроек</button>
+ </div>
+</div>
+</section>
+</main>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const show=(el,on)=>el.classList.toggle('hide',!on);
+function msg(id,t,ok){const m=$(id);m.textContent=t||'';m.className='msg '+(t?(ok?'o':'e'):'');}
+async function api(p,body,raw){
+ const o=body===undefined?{}:{method:'POST',headers:raw?{}:{'Content-Type':'application/json'},body:raw?body:JSON.stringify(body)};
+ const r=await fetch(p,o);let j={};try{j=await r.json()}catch(e){}
+ if(r.status==401&&p!='/api/login'){view('login');throw new Error('Нужен вход');}
+ if(!r.ok)throw new Error(j.error||('Ошибка '+r.status));return j;
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';')}
+function kv(id,rows){$(id).innerHTML=rows.map(r=>'<b>'+r[0]+'</b><span>'+r[1]+'</span>').join('')}
+const dot=c=>'<i class="dot '+c+'"></i>';
+let state={},cfg={},tab='status',timer=null;
+
+function view(v){for(const n of['login','setup','app'])show($('v-'+n),n==v);if(v=='login')$('lp').focus();}
+
+async function boot(){
+ try{state=await api('/api/state');}catch(e){setTimeout(boot,2000);return;}
+ $('ver').textContent=state.version||'';
+ show($('ota-card'),!!state.ota);
+ if(state.mode=='setup'){view('setup');return;}
+ if(!state.authed){view('login');return;}
+ view('app');selTab(tab);
+}
+$('lb').onclick=async()=>{try{await api('/api/login',{password:$('lp').value});$('lp').value='';msg('lm');boot();}catch(e){msg('lm',e.message)}};
+$('lp').onkeydown=e=>{if(e.key=='Enter')$('lb').click()};
+
+/* ── Вкладки ── */
+$('nav').onclick=e=>{const t=e.target.dataset.t;if(t)selTab(t)};
+function selTab(t){
+ tab=t;for(const b of $('nav').children)b.classList.toggle('on',b.dataset.t==t);
+ for(const n of['status','ctl','wifi','ts','kvm','sys'])show($('t-'+n),n==t);
+ clearInterval(timer);timer=null;
+ if(t=='status'){poll();timer=setInterval(poll,1000);}
+ if(t=='ctl')wsOpen();
+ if(['wifi','ts','kvm','sys'].includes(t))loadCfg();
+ if(t=='ts'){loadPeers();poll();}
+ if(t=='sys')poll();
+}
+
+/* ── Статус ── */
+function fmtB(n){return n>1048576?(n/1048576).toFixed(2)+' МБ':(n/1024).toFixed(0)+' КБ'}
+function fmtT(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+' д ':'')+h+' ч '+m+' мин'}
+const TS={connected:['ok','подключён'],connecting:['warn','подключение'],registering:['warn','регистрация'],reconnecting:['warn','переподключение'],wifi_wait:['warn','ждёт WiFi'],error:['bad','ошибка'],no_key:['bad','нет ключа'],off:['bad','выключен'],idle:['warn','запуск']};
+const SRC={none:'нет',udp_tailnet:'UDP через tailnet',udp_lan:'UDP из LAN',browser:'браузер'};
+async function poll(){
+ let s;try{s=await api('/api/status')}catch(e){return}
+ const w=s.wifi,t=s.tailscale,k=s.kvm,u=s.usb,m=s.mem,ts=TS[t.state]||['warn',t.state];
+ if(tab=='ts')msg('ts-err',t.error||'');
+ if(tab=='sys')kv('y-info',[['Версия',esc(s.version)],['Время работы',fmtT(s.uptime_s)]]);
+ if(tab!='status')return;
+ kv('st-net',[
+  ['WiFi',dot(w.connected?'ok':'bad')+(w.connected?esc(w.ssid)+', '+w.rssi+' дБм, '+w.ip:'нет связи')],
+  ['Tailscale',dot(ts[0])+ts[1]+(t.state=='connected'?', '+t.ip:'')+(t.error?'<br><span class="mut">'+esc(t.error)+'</span>':'')],
+  ['USB',dot(u.mounted?(u.suspended?'warn':'ok'):'bad')+(u.mounted?(u.suspended?'ПК спит':'подключён')+(u.boot_protocol?' (boot-протокол)':''):'не подключён')]]);
+ kv('st-kvm',[
+  ['Источник',SRC[k.source]+(k.source_ip?' '+k.source_ip:'')+(k.path?' — '+(k.path=='direct'?'прямой путь':k.path=='derp'?'через DERP':'путь неизвестен'):'')],
+  ['Частота',k.rate_hz+' Гц'],['Принято',k.rx],
+  ['Отброшено',k.dropped+' <span class="mut">(чужие '+k.dropped_denied+', занято '+k.dropped_busy+', порядок '+k.dropped_stale+', формат '+k.dropped_bad+')</span>'],
+  ['Сторож',k.wd_trips+' срабатываний']]);
+ kv('st-mem',[['SRAM',fmtB(m.sram_free)+' <span class="mut">(мин. '+fmtB(m.sram_min)+')</span>'],['PSRAM',fmtB(m.psram_free)+' <span class="mut">(мин. '+fmtB(m.psram_min)+')</span>'],['Время работы',fmtT(s.uptime_s)]]);
+}
+
+/* ── Настройки ── */
+async function loadCfg(){
+ try{cfg=await api('/api/config')}catch(e){return}
+ $('w-ssid').value=cfg.wifi_ssid;$('w-pass').value='';$('w-open').checked=false;
+ $('ts-key').value='';$('ts-key').placeholder=cfg.ts_auth_key_set?'задан — не менять':'tskey-auth-…';
+ $('ts-ctrl').value=cfg.ts_ctrl_host;$('ts-host').value=cfg.ts_hostname;
+ $('k-port').value=cfg.udp_port;$('k-wd').value=cfg.wd_ms;$('k-uwd').value=cfg.udp_wd_ms;$('k-lan').checked=cfg.lan_rx;
+ $('y-lan').checked=cfg.web_lan;$('y-ts').checked=cfg.web_ts;
+ allow=cfg.allow.slice();drawAllow();
+}
+async function save(body,m){
+ try{const r=await api('/api/config',body);
+  if(r.restart){msg(m,'Сохранено. Изменения вступят в силу после перезагрузки.',1);if(confirm('Перезагрузить устройство сейчас?'))reboot(m);}
+  else msg(m,'Сохранено',1);loadCfg();
+ }catch(e){msg(m,e.message)}
+}
+async function reboot(m){try{await api('/api/reboot',{});msg(m,'Перезагрузка…',1);setTimeout(()=>location.reload(),8000)}catch(e){msg(m,e.message)}}
+document.querySelectorAll('[data-scan]').forEach(b=>b.onclick=async()=>{
+ const sel=$(b.dataset.scan);b.disabled=true;b.textContent='Поиск…';
+ try{const l=await api('/api/wifi/scan');sel.innerHTML='<option value="">— найдено сетей: '+l.length+' —</option>'+l.map(n=>'<option>'+esc(n.ssid)+'</option>').join('');}catch(e){}
+ b.disabled=false;b.textContent='Найти';
+});
+$('s-list').onchange=e=>{if(e.target.value)$('s-ssid').value=e.target.value};
+$('w-list').onchange=e=>{if(e.target.value)$('w-ssid').value=e.target.value};
+$('w-save').onclick=()=>{const b={wifi_ssid:$('w-ssid').value};if($('w-pass').value)b.wifi_pass=$('w-pass').value;if($('w-open').checked)b.wifi_open=true;save(b,'w-msg')};
+$('ts-save').onclick=()=>{const b={ts_ctrl_host:$('ts-ctrl').value.trim(),ts_hostname:$('ts-host').value.trim()};if($('ts-key').value)b.ts_auth_key=$('ts-key').value.trim();save(b,'ts-msg')};
+$('ts-rereg').onclick=async()=>{if(!confirm('Сбросить ключи узла и заново зарегистрироваться в tailnet по auth-ключу? Устройство перезагрузится.'))return;try{await api('/api/ts/rereg',{});msg('ts-msg','Перезагрузка…',1)}catch(e){msg('ts-msg',e.message)}};
+let allow=[];
+function drawAllow(){
+ $('allow').innerHTML=allow.length?allow.map((a,i)=>'<div><span class="grow">'+esc(a.ip)+' <span class="mut">'+esc(a.label)+'</span></span><button class="b s" data-del="'+i+'">Убрать</button></div>').join(''):'<span class="mut">Список пуст</span>';
+}
+$('allow').onclick=e=>{const i=e.target.dataset.del;if(i!==undefined){allow.splice(+i,1);drawAllow()}};
+$('a-add').onclick=()=>{const ip=$('a-ip').value.trim();if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip)){msg('k-msg','Неверный IP');return}allow.push({ip,label:$('a-lb').value.trim()});$('a-ip').value=$('a-lb').value='';drawAllow();msg('k-msg','Не забудьте сохранить')};
+$('k-save').onclick=()=>save({udp_port:+$('k-port').value,wd_ms:+$('k-wd').value,udp_wd_ms:+$('k-uwd').value,lan_rx:$('k-lan').checked,allow},'k-msg');
+async function loadPeers(){
+ let l;try{l=await api('/api/peers')}catch(e){return}
+ $('peers').innerHTML=l.length?l.map(p=>'<div><span class="grow">'+dot(p.online?'ok':'')+esc(p.host||'?')+'<br><span class="mut">'+p.ip+' · '+(p.direct?'прямой':'DERP')+'</span></span>'+(p.allowed?'<span class="mut">разрешён</span>':'<button class="b s" data-allow="'+p.ip+'" data-lb="'+esc(p.host.split('.')[0])+'">Разрешить</button>')+'</div>').join(''):'<span class="mut">Пиров нет</span>';
+}
+$('peers').onclick=async e=>{const ip=e.target.dataset.allow;if(!ip)return;
+ try{const c=await api('/api/config');c.allow.push({ip,label:e.target.dataset.lb||''});await api('/api/config',{allow:c.allow});loadPeers();}catch(er){msg('ts-msg',er.message)}};
+$('y-save').onclick=()=>save({web_lan:$('y-lan').checked,web_ts:$('y-ts').checked},'y-msg');
+$('p-save').onclick=async()=>{try{await api('/api/password',{old:$('p-old').value,new:$('p-new').value});$('p-old').value=$('p-new').value='';msg('p-msg','Пароль изменён, войдите заново',1);setTimeout(boot,1500)}catch(e){msg('p-msg',e.message)}};
+$('y-reboot').onclick=()=>{if(confirm('Перезагрузить устройство?'))reboot('y-msg')};
+$('y-logout').onclick=async()=>{await api('/api/logout',{}).catch(()=>{});boot()};
+$('y-reset').onclick=async()=>{if(!confirm('Стереть все настройки и ключи? Устройство перейдёт в режим первичной настройки (точка доступа kvm-setup-…).'))return;try{await api('/api/factory_reset',{});alert('Настройки сброшены. Подключитесь к сети kvm-setup-… и откройте 192.168.4.1')}catch(e){alert(e.message)}};
+$('o-go').onclick=()=>{
+ const f=$('o-file').files[0];if(!f){msg('o-msg','Выберите файл .bin');return}
+ const x=new XMLHttpRequest();x.open('POST','/api/ota');
+ x.upload.onprogress=e=>{if(e.lengthComputable)$('o-bar').style.width=(e.loaded*100/e.total)+'%'};
+ x.onload=()=>{let j={};try{j=JSON.parse(x.responseText)}catch(e){}if(x.status==200){msg('o-msg','Прошивка записана, перезагрузка…',1);setTimeout(()=>location.reload(),12000)}else msg('o-msg',j.error||('Ошибка '+x.status))};
+ x.onerror=()=>msg('o-msg','Обрыв связи');msg('o-msg','Загрузка…',1);x.send(f);
+};
+$('s-save').onclick=async()=>{
+ if($('s-pw1').value!=$('s-pw2').value){msg('s-msg','Пароли не совпадают');return}
+ const b={wifi_ssid:$('s-ssid').value.trim(),wifi_pass:$('s-wpass').value,ts_auth_key:$('s-key').value.trim(),ts_ctrl_host:$('s-ctrl').value.trim(),ts_hostname:$('s-host').value.trim(),password:$('s-pw1').value};
+ const a=$('s-allow').value.trim();if(a)b.allow=[{ip:a,label:'управляющий'}];
+ try{await api('/api/setup',b);msg('s-msg','Сохранено. Плата перезагружается и подключается к '+b.wifi_ssid+'. Откройте интерфейс по её новому адресу.',1)}catch(e){msg('s-msg',e.message)}
+};
+
+/* ── Управление: протокол ── */
+const KC={Enter:40,Escape:41,Backspace:42,Tab:43,Space:44,Minus:45,Equal:46,BracketLeft:47,BracketRight:48,Backslash:49,IntlHash:50,Semicolon:51,Quote:52,Backquote:53,Comma:54,Period:55,Slash:56,CapsLock:57,PrintScreen:70,ScrollLock:71,Pause:72,Insert:73,Home:74,PageUp:75,Delete:76,End:77,PageDown:78,ArrowRight:79,ArrowLeft:80,ArrowDown:81,ArrowUp:82,NumLock:83,NumpadDivide:84,NumpadMultiply:85,NumpadSubtract:86,NumpadAdd:87,NumpadEnter:88,NumpadDecimal:99,IntlBackslash:100,ContextMenu:101,NumpadEqual:103,IntlRo:135,KanaMode:136,IntlYen:137,Convert:138,NonConvert:139,Lang1:144,Lang2:145};
+for(let i=0;i<26;i++)KC['Key'+String.fromCharCode(65+i)]=4+i;
+for(let i=1;i<10;i++){KC['Digit'+i]=29+i;KC['Numpad'+i]=88+i}KC.Digit0=39;KC.Numpad0=98;
+for(let i=1;i<13;i++)KC['F'+i]=57+i;for(let i=13;i<25;i++)KC['F'+i]=91+i;
+const MODS={ControlLeft:1,ShiftLeft:2,AltLeft:4,MetaLeft:8,ControlRight:16,ShiftRight:32,AltRight:64,MetaRight:128};
+let ws=null,owner=false,seq=1,mods=0,sticky=0,keys=[],btn=0,dx=0,dy=0,wh=0,pan=0,lastBtn=0,typing=null;
+function pkt(type,f){const b=new ArrayBuffer(16),v=new DataView(b);v.setUint16(0,0xCAFE,true);v.setUint32(2,seq++>>>0,true);v.setUint8(6,type);f(v);return b}
+function send(b){if(ws&&ws.readyState==1&&owner)ws.send(b)}
+function sendKbd(){const m=mods|sticky,k=keys.length>6?[1,1,1,1,1,1]:keys;send(pkt(2,v=>{v.setUint8(8,m);for(let i=0;i<6;i++)v.setUint8(10+i,k[i]||0)}))}
+function clamp(x,l){return Math.max(-l,Math.min(l,x))}
+function sendMouse(force){
+ if(!force&&!dx&&!dy&&!wh&&!pan&&btn==lastBtn)return;
+ const x=clamp(Math.round(dx),32767),y=clamp(Math.round(dy),32767),w=clamp(wh,127),p=clamp(pan,127);
+ dx-=x;dy-=y;wh-=w;pan-=p;lastBtn=btn;
+ send(pkt(1,v=>{v.setUint8(8,btn);v.setInt16(9,x,true);v.setInt16(11,y,true);v.setInt8(13,w);v.setInt8(14,p)}));
+}
+setInterval(()=>sendMouse(false),8);
+/* Пока что-то зажато — шлём состояние каждые 50 мс, чтобы не сработал сторож. */
+setInterval(()=>{if(mods||sticky||keys.length||btn){sendKbd();sendMouse(true)}},50);
+function releaseAll(){mods=0;keys=[];btn=0;dx=dy=wh=pan=0;sendKbd();sendMouse(true);if(ws&&ws.readyState==1)ws.send('{"t":"release"}')}
+function setLeds(v){$('led-n').classList.toggle('on',!!(v&1));$('led-c').classList.toggle('on',!!(v&2));$('led-s').classList.toggle('on',!!(v&4))}
+function cstate(t){$('c-state').textContent=t}
+function wsOpen(){
+ if(ws&&ws.readyState<2)return;
+ ws=new WebSocket((location.protocol=='https:'?'wss://':'ws://')+location.host+'/ws');
+ ws.binaryType='arraybuffer';cstate('подключение…');
+ ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(er){return}
+  if(m.t=='hello'){owner=m.owner;setLeds(m.leds);show($('c-busy'),!owner);$('c-busy-t').textContent='Управление занято другим браузером.';cstate(owner?'готово':'занято');}
+  else if(m.t=='leds')setLeds(m.v);
+  else if(m.t=='busy'){owner=false;show($('c-busy'),true);cstate('занято')}
+  else if(m.t=='src_busy'){$('c-busy-t').textContent='Сейчас вводит другой источник (UDP-сервер). Подождите, пока он замолчит.';show($('c-busy'),true);setTimeout(()=>show($('c-busy'),!owner),3000)}
+ };
+ ws.onclose=()=>{owner=false;cstate('нет связи');if(tab=='ctl')setTimeout(wsOpen,2000)};
+}
+$('c-take').onclick=()=>{if(ws&&ws.readyState==1)ws.send('{"t":"take"}')};
+
+/* ── Клавиатура и мышь компьютера ── */
+const cap=$('cap');
+const captured=()=>document.pointerLockElement==cap||document.activeElement==cap||document.fullscreenElement==cap;
+cap.onclick=()=>{cap.focus();if(cap.requestPointerLock)cap.requestPointerLock()};
+document.addEventListener('pointerlockchange',()=>{const on=document.pointerLockElement==cap;cap.classList.toggle('act',on);cap.innerHTML=on?'Захват активен. Esc — выход.':'Нажмите, чтобы захватить мышь и клавиатуру.<br>Esc — выход из захвата.';if(!on){btn=0;sendMouse(true)}});
+document.addEventListener('mousemove',e=>{if(document.pointerLockElement==cap){dx+=e.movementX;dy+=e.movementY}});
+const BMAP=[1,4,2,8,16];
+cap.addEventListener('mousedown',e=>{if(document.pointerLockElement==cap){btn|=BMAP[e.button]||0;e.preventDefault()}});
+document.addEventListener('mouseup',e=>{if(document.pointerLockElement==cap){btn&=~(BMAP[e.button]||0);e.preventDefault()}});
+cap.addEventListener('contextmenu',e=>e.preventDefault());
+cap.addEventListener('wheel',e=>{if(document.pointerLockElement!=cap)return;e.preventDefault();const s=e.deltaMode?1:40;if(e.deltaY)wh-=Math.sign(e.deltaY)*Math.max(1,Math.round(Math.abs(e.deltaY)/s));if(e.deltaX)pan+=Math.sign(e.deltaX)*Math.max(1,Math.round(Math.abs(e.deltaX)/s))},{passive:false});
+document.addEventListener('keydown',e=>{
+ if(!captured()||typing)return;e.preventDefault();
+ if(MODS[e.code]){mods|=MODS[e.code];sendKbd();return}
+ const k=KC[e.code];if(k&&!keys.includes(k)){keys.push(k);sendKbd()}
+});
+document.addEventListener('keyup',e=>{
+ if(!captured()||typing)return;e.preventDefault();
+ if(MODS[e.code]){mods&=~MODS[e.code];sendKbd();return}
+ const k=KC[e.code];const i=keys.indexOf(k);if(i>=0){keys.splice(i,1);sendKbd()}
+});
+cap.addEventListener('blur',()=>{if(document.pointerLockElement!=cap)releaseAll()});
+window.addEventListener('blur',releaseAll);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll()});
+window.addEventListener('pagehide',releaseAll);
+$('c-fs').onclick=async()=>{try{await cap.requestFullscreen();if(navigator.keyboard&&navigator.keyboard.lock)await navigator.keyboard.lock();cap.focus();cap.requestPointerLock&&cap.requestPointerLock()}catch(e){}};
+
+/* ── Сочетания ── */
+const COMBOS=[['Ctrl+Alt+Del',5,[76]],['Win',8,[]],['Alt+Tab',4,[43]],['Alt+F4',4,[61]],['Ctrl+W',1,[26]],['Ctrl+Esc',1,[41]],['Win+L',8,[15]],['Win+R',8,[21]],['Esc',0,[41]],['PrtSc',0,[70]],['F11',0,[68]],['Ctrl+Shift+Esc',3,[41]],['Ctrl+C',1,[6]],['Ctrl+V',1,[25]],['Del',0,[76]],['F2',0,[59]],['F12',0,[69]],['Enter',0,[40]]];
+$('combos').innerHTML=COMBOS.map((c,i)=>'<button class="b s" data-c="'+i+'">'+c[0]+'</button>').join('');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function tap(m,k){const sm=mods,sk=keys;mods=m;keys=[];sendKbd();await sleep(30);keys=k.slice();sendKbd();await sleep(80);keys=[];sendKbd();await sleep(30);mods=sm;keys=sk;sendKbd()}
+$('combos').onclick=e=>{const i=e.target.dataset.c;if(i!==undefined){const c=COMBOS[+i];tap(c[1],c[2])}};
+const STICKY=[['Ctrl',1],['Shift',2],['Alt',4],['Win',8],['AltGr',64]];
+$('sticky').innerHTML=STICKY.map(s=>'<button class="b s" data-s="'+s[1]+'">'+s[0]+'</button>').join('');
+$('sticky').onclick=e=>{const v=+e.target.dataset.s;if(!v)return;sticky^=v;e.target.classList.toggle('on',!!(sticky&v));sendKbd()};
+
+/* ── Набор текста ── */
+const US={};
+'abcdefghijklmnopqrstuvwxyz'.split('').forEach((c,i)=>{US[c]=[0,4+i];US[c.toUpperCase()]=[2,4+i]});
+'1234567890'.split('').forEach((c,i)=>US[c]=[0,30+i]);'!@#$%^&*()'.split('').forEach((c,i)=>US[c]=[2,30+i]);
+[['-_',45],['=+',46],['[{',47],[']}',48],['\\|',49],[';:',51],["'\"",52],['`~',53],[',<',54],['.>',55],['/?',56]].forEach(p=>{US[p[0][0]]=[0,p[1]];US[p[0][1]]=[2,p[1]]});
+US[' ']=[0,44];US['\n']=[0,40];US['\t']=[0,43];
+const RU={};
+'йцукенгшщзхъфывапролджэячсмитьбю'.split('').forEach((c,i)=>{const k=US["qwertyuiop[]asdfghjkl;'zxcvbnm,."[i]][1];RU[c]=[0,k];RU[c.toUpperCase()]=[2,k]});
+RU['ё']=[0,53];RU['Ё']=[2,53];
+function mapChar(c,lay){return (lay=='ru'&&RU[c])||(lay=='ru'&&/[a-zA-Z]/.test(c)?null:US[c])||null}
+/* Очередь нажатий: символы набираются по порядку, даже при быстром вводе с телефона. */
+let tq=[],tn=0,tskip=0;
+function typeText(t,lay){for(const c of [...t.replace(/\r\n?/g,'\n')]){const m=mapChar(c,lay||'us');if(m)tq.push(m);else tskip++}runQ()}
+function queueKey(k){tq.push([0,k]);runQ()}
+async function runQ(){
+ if(typing)return;typing={stop:false};
+ while(tq.length&&!typing.stop){const m=tq.shift();mods=m[0];keys=[m[1]];sendKbd();await sleep(15);mods=0;keys=[];sendKbd();await sleep(15);tn++;
+  if(tn%20==0)msg('pm','Набрано '+tn+', в очереди '+tq.length,1)}
+ tq=[];typing=null;if(tn>1||tskip)msg('pm','Готово: '+tn+' символов'+(tskip?', пропущено '+tskip+' (нет в раскладке)':''),!tskip);tn=0;tskip=0;
+}
+$('pgo').onclick=()=>{if(!owner){msg('pm','Нет управления');return}typeText($('pt').value,$('pl').value)};
+$('pstop').onclick=()=>{if(typing)typing.stop=true};
+
+/* ── Телефон: тачпад и экранная клавиатура ── */
+const pad=$('pad');let tp=null;
+pad.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches;tp={n:t.length,x:t[0].clientX,y:t[0].clientY,t0:Date.now(),moved:0,acc:0}},{passive:false});
+pad.addEventListener('touchmove',e=>{e.preventDefault();if(!tp)return;const t=e.touches[0],ddx=t.clientX-tp.x,ddy=t.clientY-tp.y;tp.x=t.clientX;tp.y=t.clientY;tp.moved+=Math.abs(ddx)+Math.abs(ddy);
+ if(e.touches.length>=2){tp.n=Math.max(tp.n,2);tp.acc+=ddy;while(Math.abs(tp.acc)>=15){wh+=tp.acc>0?1:-1;tp.acc-=Math.sign(tp.acc)*15}}
+ else{const sp=Math.hypot(ddx,ddy),g=sp>12?2.2:sp>5?1.6:1.1;dx+=ddx*g;dy+=ddy*g}},{passive:false});
+pad.addEventListener('touchend',e=>{e.preventDefault();if(!tp||e.touches.length)return;
+ if(tp.moved<10&&Date.now()-tp.t0<250){const b=tp.n>=2?2:1;btn|=b;sendMouse(true);setTimeout(()=>{btn&=~b;sendMouse(true)},40)}tp=null},{passive:false});
+document.querySelectorAll('[data-mb]').forEach(b=>{const v=+b.dataset.mb;
+ b.addEventListener('pointerdown',e=>{e.preventDefault();btn|=v;sendMouse(true)});
+ for(const ev of['pointerup','pointercancel','pointerleave'])b.addEventListener(ev,()=>{if(btn&v){btn&=~v;sendMouse(true)}})});
+const mk=$('mk');
+mk.addEventListener('beforeinput',e=>{e.preventDefault();
+ if(e.inputType=='insertText'||e.inputType=='insertCompositionText'){if(e.data)typeText(e.data,$('pl').value)}
+ else if(e.inputType=='deleteContentBackward')queueKey(42);
+ else if(e.inputType=='insertLineBreak'||e.inputType=='insertParagraph')queueKey(40);
+});
+mk.addEventListener('input',()=>{mk.value=''});
+mk.addEventListener('keydown',e=>{const k={Enter:40,Backspace:42,Tab:43,Escape:41,ArrowLeft:80,ArrowRight:79,ArrowUp:82,ArrowDown:81}[e.key];if(k){e.preventDefault();queueKey(k)}});
+const touch=matchMedia('(pointer:coarse)').matches;show($('c-desk'),!touch);show($('c-touch'),touch);
+
+boot();
+</script>
+</body>
+</html>
