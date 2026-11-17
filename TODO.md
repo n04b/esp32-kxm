@@ -53,3 +53,21 @@ Mobile app:
 - [ ] Transports: BLE nearby, plus WebSocket over the tailnet (the same protocol as the browser) so the app also works remotely.
 - [ ] Minimal latency: send mouse motion as packets with accumulated deltas, as in the browser.
 - [ ] Separate repository or an `app/` directory: to decide.
+
+## 4. Preset settings before flashing (`secrets.defaults`, like `.env`)
+
+Goal: set WiFi, Tailscale and the UI password at build time so a freshly flashed board goes straight to normal mode, skipping the `kvm-setup-XXXX` access point.
+
+- [ ] New Kconfig menu "Preset (first boot)" in `main/Kconfig.projbuild`, all empty by default:
+  - [ ] `KVM_PRESET_WIFI_SSID`, `KVM_PRESET_WIFI_PASS`;
+  - [ ] `KVM_PRESET_TS_AUTH_KEY`, `KVM_PRESET_TS_CTRL_HOST`, `KVM_PRESET_HOSTNAME`;
+  - [ ] `KVM_PRESET_UI_PASSWORD`;
+  - [ ] `KVM_PRESET_ALLOW`: comma-separated list of allowed sender IPs;
+  - [ ] optionally `KVM_PRESET_UDP_PORT`, `KVM_PRESET_LAN_RX`, `KVM_PRESET_WEB_LAN`, `KVM_PRESET_WEB_TS`.
+- [ ] `secrets.defaults` in the project root with these `CONFIG_KVM_PRESET_*` values; add it to `.gitignore`. Commit a `secrets.defaults.example` with placeholders.
+- [ ] Build with `SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.supermini;secrets.defaults"`; document in README. Note: values land in the generated `sdkconfig` (already gitignored) and in the build folder.
+- [ ] In `config_init()`: if the board is not provisioned and at least the SSID and UI password are preset, fill the settings, hash the password (PBKDF2, never store it in clear), parse the allowlist, set `provisioned`, write to NVS, and log that presets were applied (without secret values).
+- [ ] Validate presets with the same rules as the web UI (WiFi password 8–64 or empty, UI password ≥ 6, hostname characters, valid IPs); on error, log it and fall back to the setup access point.
+- [ ] After the BOOT factory reset, decide whether presets are applied again. Proposal: yes by default (handy for your own boards), with `KVM_PRESET_REAPPLY_AFTER_RESET` to disable it.
+- [ ] Security note in README: preset secrets are stored in clear text inside the firmware `.bin`, including OTA images; do not share such a build. Without flash encryption, the NVS settings are also readable from flash.
+- [ ] Optional: a build-time warning when a preset build is made, so it is not mistaken for a shareable image.
